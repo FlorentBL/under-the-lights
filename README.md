@@ -13,6 +13,21 @@ Players predict the score, first goalscorer, scoring window, and match events. C
 - Season leaderboard
 - Achievement and badge collection
 - Player profile and prediction history
+- Admin control room for the Monday fixture radar and editorial publication
+
+## Admin control room
+
+The private control room lives at `/admin`. Access is restricted to authenticated accounts whose email appears in the comma-separated `ADMIN_EMAILS` Worker variable.
+
+```bash
+ADMIN_EMAILS=first@example.com,second@example.com
+```
+
+From the control room, an administrator can scan the next Soccerverse weekend, inspect the ranked shortlist, edit the match story and publish the selected fixture. The public spotlight updates from the published D1 record.
+
+Cloudflare launches the radar every Monday at 07:00 UTC. The control-room action can safely generate a fresh run whenever the editorial team wants to recalculate the shortlist.
+
+The radar evaluates league position, points, unbeaten form, winning starts, division discovery value, active managers, squad strength and competitive balance. The complete score explanation is stored with every shortlisted fixture.
 
 ## Local development
 

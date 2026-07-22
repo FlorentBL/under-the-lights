@@ -69,3 +69,62 @@ export const predictions = sqliteTable("predictions", {
 }, (table) => [
   uniqueIndex("prediction_participant_match_idx").on(table.participantId, table.matchId),
 ]);
+
+export const radarRuns = sqliteTable("radar_runs", {
+  id: text("id").primaryKey(),
+  weekKey: text("week_key").notNull(),
+  windowStart: integer("window_start").notNull(),
+  windowEnd: integer("window_end").notNull(),
+  status: text("status").notNull(),
+  fixturesScanned: integer("fixtures_scanned").default(0).notNull(),
+  countriesScanned: integer("countries_scanned").default(0).notNull(),
+  createdBy: text("created_by").notNull(),
+  error: text("error"),
+  createdAt: integer("created_at").notNull(),
+  completedAt: integer("completed_at"),
+}, (table) => [index("radar_runs_week_idx").on(table.weekKey)]);
+
+export const spotlightCandidates = sqliteTable("spotlight_candidates", {
+  id: text("id").primaryKey(),
+  runId: text("run_id").notNull().references(() => radarRuns.id, { onDelete: "cascade" }),
+  rank: integer("rank").notNull(),
+  score: integer("score").notNull(),
+  fixtureId: integer("fixture_id").notNull(),
+  competitionId: integer("competition_id").notNull(),
+  seasonId: integer("season_id").notNull(),
+  kickoff: integer("kickoff").notNull(),
+  countryCode: text("country_code").notNull(),
+  competitionName: text("competition_name").notNull(),
+  divisionLevel: integer("division_level").notNull(),
+  homeClubId: integer("home_club_id").notNull(),
+  awayClubId: integer("away_club_id").notNull(),
+  homeName: text("home_name").notNull(),
+  awayName: text("away_name").notNull(),
+  homePosition: integer("home_position"),
+  awayPosition: integer("away_position"),
+  homePoints: integer("home_points"),
+  awayPoints: integer("away_points"),
+  homeRecord: text("home_record"),
+  awayRecord: text("away_record"),
+  homeManager: text("home_manager"),
+  awayManager: text("away_manager"),
+  homeStrength: integer("home_strength"),
+  awayStrength: integer("away_strength"),
+  reasons: text("reasons").notNull(),
+  createdAt: integer("created_at").notNull(),
+}, (table) => [
+  index("spotlight_candidates_run_idx").on(table.runId),
+  uniqueIndex("spotlight_candidates_run_fixture_idx").on(table.runId, table.fixtureId),
+]);
+
+export const spotlights = sqliteTable("spotlights", {
+  id: text("id").primaryKey(),
+  weekKey: text("week_key").notNull().unique(),
+  candidateId: text("candidate_id").notNull().references(() => spotlightCandidates.id),
+  status: text("status").default("published").notNull(),
+  editorialTitle: text("editorial_title"),
+  editorialSummary: text("editorial_summary"),
+  publishedBy: text("published_by").notNull(),
+  publishedAt: integer("published_at").notNull(),
+  updatedAt: integer("updated_at").notNull(),
+}, (table) => [index("spotlights_status_idx").on(table.status)]);

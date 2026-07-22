@@ -34,6 +34,50 @@ type Prediction = {
   firstTeam: string;
 };
 
+type Spotlight = {
+  fixtureId: number;
+  kickoff: number;
+  countryCode: string;
+  competitionName: string;
+  homeName: string;
+  awayName: string;
+  homePosition: number | null;
+  awayPosition: number | null;
+  homePoints: number | null;
+  awayPoints: number | null;
+  homeRecord: string | null;
+  awayRecord: string | null;
+  homeManager: string | null;
+  awayManager: string | null;
+  homeStrength: number | null;
+  awayStrength: number | null;
+  title: string;
+  summary: string;
+  reasons: string[];
+};
+
+const fallbackSpotlight: Spotlight = {
+  fixtureId: 0,
+  kickoff: 1785004200,
+  countryCode: "POL",
+  competitionName: "I Liga",
+  homeName: "Wisła Kraków",
+  awayName: "Arka Gdynia",
+  homePosition: 2,
+  awayPosition: 1,
+  homePoints: null,
+  awayPoints: null,
+  homeRecord: "W-W-D-W",
+  awayRecord: null,
+  homeManager: null,
+  awayManager: null,
+  homeStrength: null,
+  awayStrength: null,
+  title: "Two points apart. Four games left.",
+  summary: "One night can redraw the race for promotion.",
+  reasons: ["Promotion race"],
+};
+
 const scorers = [
   "Ángel Rodado",
   "Jesús Alfaro",
@@ -84,6 +128,22 @@ export function UnderTheLightsApp() {
   const [submitted, setSubmitted] = useState(false);
   const [saving, setSaving] = useState(false);
   const [notice, setNotice] = useState("");
+  const [spotlight, setSpotlight] = useState<Spotlight>(fallbackSpotlight);
+
+  useEffect(() => {
+    fetch("/api/spotlight/current")
+      .then(async (response) => await response.json() as { spotlight?: Spotlight | null })
+      .then((payload) => {
+        if (!payload.spotlight) return;
+        setSpotlight(payload.spotlight);
+        setPrediction((current) => ({
+          ...current,
+          firstTeam: current.firstTeam === fallbackSpotlight.homeName ? payload.spotlight!.homeName : current.firstTeam,
+          firstScorer: current.firstScorer === scorers[0] ? `${payload.spotlight!.homeName} first scorer` : current.firstScorer,
+        }));
+      })
+      .catch(() => undefined);
+  }, []);
 
   useEffect(() => {
     const timer = window.setTimeout(() => {
@@ -124,7 +184,7 @@ export function UnderTheLightsApp() {
       const response = await fetch("/api/predictions", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ matchId: "wisla-arka-2026", ...prediction }),
+        body: JSON.stringify({ matchId: spotlight.fixtureId ? String(spotlight.fixtureId) : "preview-spotlight", ...prediction }),
       });
       if (!response.ok) throw new Error("Prediction could not be saved");
       window.localStorage.setItem("utl-current-prediction", JSON.stringify(prediction));
@@ -141,7 +201,7 @@ export function UnderTheLightsApp() {
     <div className="app-shell">
       <header className="site-header">
         <button className="brand-button" onClick={() => navigate("spotlight")} aria-label="Under the Lights home">
-          <Image src="/logo.png" alt="Soccerverse Under the Lights" className="brand-logo" width={1280} height={540} priority />
+          <Image src="/logo.png" alt="Soccerverse Under the Lights" className="brand-logo" width={1774} height={887} priority />
         </button>
         <nav className={mobileOpen ? "main-nav is-open" : "main-nav"} aria-label="Main navigation">
           <NavButton active={view === "spotlight"} onClick={() => navigate("spotlight")}>Spotlight</NavButton>
@@ -169,6 +229,7 @@ export function UnderTheLightsApp() {
       <main>
         {view === "spotlight" && (
           <SpotlightView
+            spotlight={spotlight}
             prediction={prediction}
             setPrediction={setPrediction}
             submitted={submitted}
@@ -187,7 +248,7 @@ export function UnderTheLightsApp() {
       {authOpen && <AuthDialog onClose={() => setAuthOpen(false)} />}
 
       <footer className="site-footer">
-        <Image src="/logo.png" alt="Soccerverse Under the Lights" width={1280} height={540} />
+        <Image src="/logo.png" alt="Soccerverse Under the Lights" width={1774} height={887} />
         <p>One world. One match. Every week.</p>
         <span>A Soccerverse community game</span>
       </footer>
@@ -270,7 +331,8 @@ function NavButton({ active, onClick, children }: { active: boolean; onClick: ()
   return <button className={active ? "nav-button active" : "nav-button"} onClick={onClick}>{children}</button>;
 }
 
-function SpotlightView({ prediction, setPrediction, submitted, saving, notice, projectedPoints, onSubmit, onLeaderboard }: {
+function SpotlightView({ spotlight, prediction, setPrediction, submitted, saving, notice, projectedPoints, onSubmit, onLeaderboard }: {
+  spotlight: Spotlight;
   prediction: Prediction;
   setPrediction: (prediction: Prediction) => void;
   submitted: boolean;
@@ -281,6 +343,11 @@ function SpotlightView({ prediction, setPrediction, submitted, saving, notice, p
   onLeaderboard: () => void;
 }) {
   const heroRef = useRef<HTMLElement>(null);
+  const kickoff = new Intl.DateTimeFormat("en-GB", { weekday: "long", hour: "2-digit", minute: "2-digit", timeZone: "Europe/Paris", timeZoneName: "short" }).format(new Date(spotlight.kickoff * 1000));
+  const dynamicScorers = spotlight.fixtureId
+    ? [`${spotlight.homeName} first scorer`, `${spotlight.awayName} first scorer`, "No first goalscorer"]
+    : scorers;
+  const spotlightReason = spotlight.reasons[0] || "The match of the week";
 
   function moveHeroLight(event: React.PointerEvent<HTMLElement>) {
     if (event.pointerType !== "mouse" || !heroRef.current) return;
@@ -296,7 +363,7 @@ function SpotlightView({ prediction, setPrediction, submitted, saving, notice, p
         <div className="hero-scrim" />
         <div className="hero-pointer-light" aria-hidden="true" />
         <div className="hero-copy">
-          <div className="eyebrow"><GlobeHemisphereWest size={16} weight="bold" /> This week in Poland</div>
+          <div className="eyebrow"><GlobeHemisphereWest size={16} weight="bold" /> This week in {spotlight.countryCode}</div>
           <h1>One match.<br /><em>All eyes.</em></h1>
           <p>Discover the games that matter, wherever football takes you.</p>
           <a href="#prediction" className="primary-cta">Make your prediction <ArrowRight size={18} weight="bold" /></a>
@@ -304,23 +371,23 @@ function SpotlightView({ prediction, setPrediction, submitted, saving, notice, p
 
         <article className="fixture-panel" aria-label="Featured match">
           <div className="fixture-heading">
-            <div><span>Featured fixture</span><strong>I Liga</strong></div>
-            <time>Saturday<br />20:30 CET</time>
+            <div><span>Featured fixture</span><strong>{spotlight.competitionName}</strong></div>
+            <time>{kickoff}</time>
           </div>
           <div className="teams">
-            <TeamMark initials="WK" name="Wisła Kraków" position="2nd" home />
-            <div className="versus"><span>VS</span><small>Promotion race</small></div>
-            <TeamMark initials="AG" name="Arka Gdynia" position="1st" />
+            <TeamMark initials={initials(spotlight.homeName)} name={spotlight.homeName} position={spotlight.homePosition} competition={spotlight.competitionName} home />
+            <div className="versus"><span>VS</span><small>{spotlightReason}</small></div>
+            <TeamMark initials={initials(spotlight.awayName)} name={spotlight.awayName} position={spotlight.awayPosition} competition={spotlight.competitionName} />
           </div>
-          <div className="fixture-story"><strong>Two points apart. Four games left.</strong><p>One night can redraw the race for promotion.</p></div>
+          <div className="fixture-story"><strong>{spotlight.title}</strong><p>{spotlight.summary}</p></div>
         </article>
       </section>
 
       <section className="match-dossier" aria-label="Match context">
-        <div className="dossier-intro"><span>Why this match</span><strong>Pressure, history and a place at the top.</strong></div>
-        <div><strong>2</strong><span>Points between them</span></div>
-        <div><strong>12</strong><span>Goals in their last five</span></div>
-        <div><strong>W W D W</strong><span>Wisła recent form</span></div>
+        <div className="dossier-intro"><span>Why this match</span><strong>{spotlight.reasons.slice(0, 2).join(". ") || "One fixture deserves the world stage."}</strong></div>
+        <div><strong>{positionMatchup(spotlight)}</strong><span>League positions</span></div>
+        <div><strong>{strengthMatchup(spotlight)}</strong><span>Squad strength</span></div>
+        <div><strong>{spotlight.homeRecord || "Fresh start"}</strong><span>{spotlight.homeName} record</span></div>
       </section>
 
       <section className="prediction-section" id="prediction">
@@ -330,19 +397,19 @@ function SpotlightView({ prediction, setPrediction, submitted, saving, notice, p
             <fieldset className="score-fieldset">
               <legend>Full-time score</legend>
               <div className="score-picker">
-                <ScoreControl label="Wisła Kraków" value={prediction.homeScore} onChange={(homeScore) => setPrediction({ ...prediction, homeScore })} />
+                <ScoreControl label={spotlight.homeName} value={prediction.homeScore} onChange={(homeScore) => setPrediction({ ...prediction, homeScore })} />
                 <span className="score-separator">:</span>
-                <ScoreControl label="Arka Gdynia" value={prediction.awayScore} onChange={(awayScore) => setPrediction({ ...prediction, awayScore })} />
+                <ScoreControl label={spotlight.awayName} value={prediction.awayScore} onChange={(awayScore) => setPrediction({ ...prediction, awayScore })} />
               </div>
             </fieldset>
-            <label className="field-block"><span>First goalscorer</span><select value={prediction.firstScorer} onChange={(event) => setPrediction({ ...prediction, firstScorer: event.target.value })}>{scorers.map((player) => <option key={player}>{player}</option>)}</select></label>
+            <label className="field-block"><span>First goalscorer</span><select value={dynamicScorers.includes(prediction.firstScorer) ? prediction.firstScorer : dynamicScorers[0]} onChange={(event) => setPrediction({ ...prediction, firstScorer: event.target.value })}>{dynamicScorers.map((player) => <option key={player}>{player}</option>)}</select></label>
             <fieldset className="field-block"><legend>First goal window</legend><div className="choice-row">{["1-15", "16-30", "31-45+", "46-60", "61-75", "76-90+"].map((window) => <button type="button" key={window} className={prediction.goalWindow === window ? "choice active" : "choice"} onClick={() => setPrediction({ ...prediction, goalWindow: window })}>{window}</button>)}</div></fieldset>
-            <fieldset className="field-block"><legend>Who scores first?</legend><div className="choice-row three">{["Wisła Kraków", "Arka Gdynia", "No goal"].map((team) => <button type="button" key={team} className={prediction.firstTeam === team ? "choice active" : "choice"} onClick={() => setPrediction({ ...prediction, firstTeam: team })}>{team}</button>)}</div></fieldset>
+            <fieldset className="field-block"><legend>Who scores first?</legend><div className="choice-row three">{[spotlight.homeName, spotlight.awayName, "No goal"].map((team) => <button type="button" key={team} className={prediction.firstTeam === team ? "choice active" : "choice"} onClick={() => setPrediction({ ...prediction, firstTeam: team })}>{team}</button>)}</div></fieldset>
           </div>
 
           <aside className="prediction-summary">
-            <div className="summary-top"><Clock size={20} /><span>Predictions close</span><strong>Saturday at 20:30 CET</strong></div>
-            <div className="score-preview"><span>WK</span><strong>{prediction.homeScore} - {prediction.awayScore}</strong><span>AG</span></div>
+            <div className="summary-top"><Clock size={20} /><span>Predictions close</span><strong>{kickoff}</strong></div>
+            <div className="score-preview"><span>{initials(spotlight.homeName)}</span><strong>{prediction.homeScore} - {prediction.awayScore}</strong><span>{initials(spotlight.awayName)}</span></div>
             <dl><div><dt>First scorer</dt><dd>{prediction.firstScorer}</dd></div><div><dt>Goal window</dt><dd>{prediction.goalWindow} min</dd></div><div><dt>Maximum haul</dt><dd>{projectedPoints} pts</dd></div></dl>
             <button className="submit-prediction" type="submit" disabled={saving}>{saving ? "Locking prediction..." : submitted ? "Update prediction" : "Lock prediction"}{submitted ? <Check size={19} weight="bold" /> : <ArrowRight size={19} weight="bold" />}</button>
             {notice && <p className="form-notice" role="status">{notice}</p>}
@@ -358,8 +425,18 @@ function SpotlightView({ prediction, setPrediction, submitted, saving, notice, p
   );
 }
 
-function TeamMark({ initials: mark, name, position, home = false }: { initials: string; name: string; position: string; home?: boolean }) {
-  return <div className="team-mark"><div className={home ? "team-badge home" : "team-badge"}>{mark}</div><strong>{name}</strong><span>{position} in I Liga</span></div>;
+function TeamMark({ initials: mark, name, position, competition, home = false }: { initials: string; name: string; position: number | null; competition: string; home?: boolean }) {
+  return <div className="team-mark"><div className={home ? "team-badge home" : "team-badge"}>{mark}</div><strong>{name}</strong><span>{position ? `#${position}` : "Unranked"} in {competition}</span></div>;
+}
+
+function positionMatchup(spotlight: Spotlight) {
+  return spotlight.homePosition && spotlight.awayPosition ? `#${spotlight.homePosition} / #${spotlight.awayPosition}` : "Cup tie";
+}
+
+function strengthMatchup(spotlight: Spotlight) {
+  return spotlight.homeStrength !== null && spotlight.awayStrength !== null
+    ? `${spotlight.homeStrength.toFixed(1)} / ${spotlight.awayStrength.toFixed(1)}`
+    : "Evenly matched";
 }
 
 function ScoreControl({ label, value, onChange }: { label: string; value: number; onChange: (value: number) => void }) {
