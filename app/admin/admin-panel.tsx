@@ -20,6 +20,7 @@ import {
 } from "@phosphor-icons/react";
 import Image from "next/image";
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { buildEditorialDraft, type EditorialTone } from "@/lib/editorial-story";
 
 type Candidate = {
   id: string;
@@ -71,6 +72,12 @@ type Overview = {
 
 type AdminView = "radar" | "users";
 
+const storyDirections: { id: EditorialTone; label: string; description: string }[] = [
+  { id: "dramatic", label: "Dramatic", description: "Stakes and tension" },
+  { id: "analytical", label: "Analytical", description: "Numbers and balance" },
+  { id: "discovery", label: "Discovery", description: "League and context" },
+];
+
 type AdminUser = {
   id: string;
   name: string;
@@ -108,6 +115,16 @@ export function AdminPanel() {
   const [error, setError] = useState("");
   const [title, setTitle] = useState("");
   const [summary, setSummary] = useState("");
+  const [storyTone, setStoryTone] = useState<EditorialTone>("dramatic");
+  const [storyVariation, setStoryVariation] = useState(0);
+
+  const applyEditorialDraft = useCallback((candidate: Candidate, tone: EditorialTone, variation: number) => {
+    const draft = buildEditorialDraft(candidate, tone, variation);
+    setStoryTone(tone);
+    setStoryVariation(variation);
+    setTitle(draft.title);
+    setSummary(draft.summary);
+  }, []);
 
   const load = useCallback(async (preferredId?: string) => {
     const response = await fetch("/api/admin/radar", { cache: "no-store" });
@@ -116,9 +133,9 @@ export function AdminPanel() {
     setData(payload);
     const next = payload.candidates.find((item) => item.id === preferredId) || payload.candidates[0] || null;
     setSelectedId(next?.id || null);
-    setTitle(next ? `${next.homeName} vs ${next.awayName}` : "");
-    setSummary(next ? editorialSuggestion(next) : "");
-  }, []);
+    if (next) applyEditorialDraft(next, "dramatic", 0);
+    else { setTitle(""); setSummary(""); }
+  }, [applyEditorialDraft]);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -132,8 +149,8 @@ export function AdminPanel() {
         const next = payload.candidates[0] || null;
         setData(payload);
         setSelectedId(next?.id || null);
-        setTitle(next ? `${next.homeName} vs ${next.awayName}` : "");
-        setSummary(next ? editorialSuggestion(next) : "");
+        if (next) applyEditorialDraft(next, "dramatic", 0);
+        else { setTitle(""); setSummary(""); }
       })
       .catch((cause) => {
         if (!controller.signal.aborted) setError(cause instanceof Error ? cause.message : "Control room unavailable");
@@ -142,14 +159,23 @@ export function AdminPanel() {
         if (!controller.signal.aborted) setLoading(false);
       });
     return () => controller.abort();
-  }, []);
+  }, [applyEditorialDraft]);
 
   const selected = useMemo(() => data?.candidates.find((candidate) => candidate.id === selectedId) || null, [data, selectedId]);
 
   function chooseCandidate(candidate: Candidate) {
     setSelectedId(candidate.id);
-    setTitle(`${candidate.homeName} vs ${candidate.awayName}`);
-    setSummary(editorialSuggestion(candidate));
+    applyEditorialDraft(candidate, "dramatic", 0);
+  }
+
+  function chooseStoryDirection(tone: EditorialTone) {
+    if (!selected) return;
+    applyEditorialDraft(selected, tone, storyVariation);
+  }
+
+  function regenerateStory() {
+    if (!selected) return;
+    applyEditorialDraft(selected, storyTone, storyVariation + 1);
   }
 
   async function runRadar() {
@@ -284,9 +310,23 @@ export function AdminPanel() {
 
                 <div className="reason-list"><h3>Why it surfaced</h3>{selected.reasons.map((reason) => <span key={reason}>{reason}</span>)}</div>
 
+                <section className="story-workbench" aria-labelledby="story-direction-heading">
+                  <div className="story-workbench-head">
+                    <div><strong id="story-direction-heading">Story direction</strong><small>Built from verified radar data</small></div>
+                    <button type="button" onClick={regenerateStory} aria-label="Generate another match story"><ArrowsClockwise size={14} /> New version</button>
+                  </div>
+                  <div className="story-directions" role="group" aria-label="Match story direction">
+                    {storyDirections.map((direction) => (
+                      <button key={direction.id} type="button" className={storyTone === direction.id ? "selected" : ""} aria-pressed={storyTone === direction.id} onClick={() => chooseStoryDirection(direction.id)}>
+                        <strong>{direction.label}</strong><span>{direction.description}</span>
+                      </button>
+                    ))}
+                  </div>
+                </section>
+
                 <div className="editorial-fields">
                   <label><span>Editorial title</span><input value={title} onChange={(event) => setTitle(event.target.value)} maxLength={120} /></label>
-                  <label><span>Match story</span><textarea value={summary} onChange={(event) => setSummary(event.target.value)} maxLength={360} rows={4} /></label>
+                  <label><span>Match story <small>{summary.length}/360</small></span><textarea value={summary} onChange={(event) => setSummary(event.target.value)} maxLength={360} rows={6} /></label>
                 </div>
                 <button className="publish-button" onClick={publish} disabled={publishing || !title.trim() || !summary.trim()}>
                   <Broadcast size={19} weight="fill" /> {publishing ? "Publishing" : data.published?.candidateId === selected.id ? "Update live spotlight" : "Publish this spotlight"}
@@ -400,13 +440,6 @@ function AdminLoading() {
 
 function AdminDenied({ message }: { message: string }) {
   return <main className="admin-denied"><LockKey size={46} weight="duotone" /><h1>Control room locked.</h1><p>{message || "Sign in with an authorised account to continue."}</p><a href="/"><ArrowLeft size={17} /> Return to the spotlight</a></main>;
-}
-
-function editorialSuggestion(candidate: Candidate) {
-  if (candidate.homePosition && candidate.awayPosition && Math.max(candidate.homePosition, candidate.awayPosition) <= 2) {
-    return `First meets second after matching starts to the season. ${candidate.homeName} and ${candidate.awayName} now share one stage.`;
-  }
-  return `${candidate.homeName} and ${candidate.awayName} arrive closely matched. This weekend, Soccerverse puts their story under the lights.`;
 }
 
 function initials(name: string) {
