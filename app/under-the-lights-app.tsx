@@ -471,7 +471,7 @@ function SpotlightView({ spotlight, prediction, setPrediction, submitted, saving
               <option value={NO_GOAL}>No first goalscorer</option>
             </select></label>
             <fieldset className="field-block"><legend>First goal window</legend><div className="choice-row">{GOAL_WINDOWS.map((window) => <button type="button" key={window} disabled={predictionsClosed} className={prediction.goalWindow === window ? "choice active" : "choice"} onClick={() => setPrediction({ ...prediction, goalWindow: window })}>{window === NO_GOAL ? "No goal" : window}</button>)}</div></fieldset>
-            <fieldset className="field-block"><legend>Who scores first?</legend><div className="choice-row three">{[
+            <fieldset className="field-block"><legend>Who scores first?</legend><div className="choice-row three">{spotlight.fixtureId > 0 && [
               { key: "home", value: String(spotlight.homeClubId), label: spotlight.homeName },
               { key: "away", value: String(spotlight.awayClubId), label: spotlight.awayName },
               { key: "no-goal", value: NO_GOAL, label: "No goal" },
