@@ -10,6 +10,7 @@ import {
   Fire,
   GlobeHemisphereWest,
   Lock,
+  MagnifyingGlass,
   Medal,
   ShieldCheck,
   SignIn as SignInIcon,
@@ -35,6 +36,15 @@ type Prediction = {
   firstTeam: string;
 };
 
+type SpotlightPlayer = {
+  id: number;
+  clubId: number;
+  name: string;
+  position: number | null;
+  rating: number | null;
+  imageUrl: string;
+};
+
 type Spotlight = {
   fixtureId: number;
   kickoff: number;
@@ -57,7 +67,7 @@ type Spotlight = {
   title: string;
   summary: string;
   reasons: string[];
-  players: { id: number; clubId: number; name: string; position: number | null; rating: number | null }[];
+  players: SpotlightPlayer[];
   result: null | {
     homeScore: number;
     awayScore: number;
@@ -160,7 +170,7 @@ export function UnderTheLightsApp() {
         setPrediction({
           homeScore: 2,
           awayScore: 1,
-          firstScorer: next.players[0] ? String(next.players[0].id) : "",
+          firstScorer: "",
           goalWindow: "16-30",
           firstTeam: String(next.homeClubId),
         });
@@ -381,8 +391,6 @@ function SpotlightView({ spotlight, prediction, setPrediction, submitted, saving
   const heroRef = useRef<HTMLElement>(null);
   const [clock, setClock] = useState(0);
   const kickoff = new Intl.DateTimeFormat("en-GB", { weekday: "long", hour: "2-digit", minute: "2-digit", timeZone: "Europe/Paris", timeZoneName: "short" }).format(new Date(spotlight.kickoff * 1000));
-  const homePlayers = spotlight.players.filter((player) => player.clubId === spotlight.homeClubId);
-  const awayPlayers = spotlight.players.filter((player) => player.clubId === spotlight.awayClubId);
   const selectedScorer = spotlight.players.find((player) => String(player.id) === prediction.firstScorer)?.name
     || (prediction.firstScorer === NO_GOAL ? "No first goalscorer" : "Select a player");
   const predictionsClosed = Boolean(spotlight.result) || clock >= spotlight.kickoff * 1000;
@@ -404,7 +412,7 @@ function SpotlightView({ spotlight, prediction, setPrediction, submitted, saving
       next.goalWindow = NO_GOAL;
       next.firstTeam = NO_GOAL;
     } else {
-      if (!next.firstScorer || next.firstScorer === NO_GOAL) next.firstScorer = spotlight.players[0] ? String(spotlight.players[0].id) : "";
+      if (next.firstScorer === NO_GOAL) next.firstScorer = "";
       if (next.goalWindow === NO_GOAL) next.goalWindow = "1-15";
       if (next.firstTeam === NO_GOAL) next.firstTeam = String(spotlight.homeClubId);
     }
@@ -464,12 +472,17 @@ function SpotlightView({ spotlight, prediction, setPrediction, submitted, saving
                 <ScoreControl label={spotlight.awayName} value={prediction.awayScore} disabled={predictionsClosed} onChange={(awayScore) => updateScore("awayScore", awayScore)} />
               </div>
             </fieldset>
-            <label className="field-block"><span>First goalscorer</span><select value={prediction.firstScorer} disabled={predictionsClosed || !spotlight.players.length} onChange={(event) => setPrediction({ ...prediction, firstScorer: event.target.value })}>
-              {!spotlight.players.length && <option value="">Squads are loading</option>}
-              <optgroup label={spotlight.homeName}>{homePlayers.map((player) => <option key={player.id} value={String(player.id)}>{player.name}</option>)}</optgroup>
-              <optgroup label={spotlight.awayName}>{awayPlayers.map((player) => <option key={player.id} value={String(player.id)}>{player.name}</option>)}</optgroup>
-              <option value={NO_GOAL}>No first goalscorer</option>
-            </select></label>
+            <PlayerPicker
+              players={spotlight.players}
+              homeClubId={spotlight.homeClubId}
+              awayClubId={spotlight.awayClubId}
+              homeName={spotlight.homeName}
+              awayName={spotlight.awayName}
+              value={prediction.firstScorer}
+              disabled={predictionsClosed || !spotlight.players.length || prediction.homeScore + prediction.awayScore === 0}
+              loading={!spotlight.players.length}
+              onChange={(firstScorer) => setPrediction({ ...prediction, firstScorer })}
+            />
             <fieldset className="field-block"><legend>First goal window</legend><div className="choice-row">{GOAL_WINDOWS.map((window) => <button type="button" key={window} disabled={predictionsClosed} className={prediction.goalWindow === window ? "choice active" : "choice"} onClick={() => setPrediction({ ...prediction, goalWindow: window })}>{window === NO_GOAL ? "No goal" : window}</button>)}</div></fieldset>
             <fieldset className="field-block"><legend>Who scores first?</legend><div className="choice-row three">{spotlight.fixtureId > 0 && [
               { key: "home", value: String(spotlight.homeClubId), label: spotlight.homeName },
@@ -483,7 +496,7 @@ function SpotlightView({ spotlight, prediction, setPrediction, submitted, saving
             <div className="score-preview"><span>{initials(spotlight.homeName)}</span><strong>{prediction.homeScore} - {prediction.awayScore}</strong><span>{initials(spotlight.awayName)}</span></div>
             <div className="scoring-key" aria-label="Scoring rules"><span>Result <b>3</b></span><span>Exact <b>+5</b></span><span>Scorer <b>4</b></span><span>Window <b>2</b></span><span>First team <b>1</b></span></div>
             <dl><div><dt>First scorer</dt><dd>{selectedScorer}</dd></div><div><dt>Goal window</dt><dd>{prediction.goalWindow === NO_GOAL ? "No goal" : `${prediction.goalWindow} min`}</dd></div><div><dt>Maximum haul</dt><dd>{projectedPoints} pts</dd></div></dl>
-            <button className="submit-prediction" type="submit" disabled={saving || predictionsClosed || !spotlight.players.length}>{saving ? "Locking prediction..." : predictionsClosed ? "Predictions closed" : submitted ? "Update prediction" : "Lock prediction"}{submitted ? <Check size={19} weight="bold" /> : <ArrowRight size={19} weight="bold" />}</button>
+            <button className="submit-prediction" type="submit" disabled={saving || predictionsClosed || !spotlight.players.length || (prediction.homeScore + prediction.awayScore > 0 && (!prediction.firstScorer || prediction.firstScorer === NO_GOAL))}>{saving ? "Locking prediction..." : predictionsClosed ? "Predictions closed" : submitted ? "Update prediction" : "Lock prediction"}{submitted ? <Check size={19} weight="bold" /> : <ArrowRight size={19} weight="bold" />}</button>
             {notice && <p className="form-notice" role="status">{notice}</p>}
           </aside>
         </form>
@@ -513,6 +526,111 @@ function strengthMatchup(spotlight: Spotlight) {
 
 function ScoreControl({ label, value, disabled, onChange }: { label: string; value: number; disabled: boolean; onChange: (value: number) => void }) {
   return <div className="score-control"><span>{label}</span><div><button type="button" disabled={disabled} onClick={() => onChange(Math.max(0, value - 1))} aria-label={`Decrease ${label} score`}>−</button><strong>{value}</strong><button type="button" disabled={disabled} onClick={() => onChange(Math.min(9, value + 1))} aria-label={`Increase ${label} score`}>+</button></div></div>;
+}
+
+function PlayerPicker({ players, homeClubId, awayClubId, homeName, awayName, value, disabled, loading, onChange }: {
+  players: SpotlightPlayer[];
+  homeClubId: number;
+  awayClubId: number;
+  homeName: string;
+  awayName: string;
+  value: string;
+  disabled: boolean;
+  loading: boolean;
+  onChange: (playerId: string) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const [query, setQuery] = useState("");
+  const [team, setTeam] = useState<"all" | "home" | "away">("all");
+  const pickerRef = useRef<HTMLDivElement>(null);
+  const selected = players.find((player) => String(player.id) === value);
+  const normalizedQuery = query.trim().toLocaleLowerCase();
+  const visiblePlayers = players
+    .filter((player) => team === "all"
+      || (team === "home" && player.clubId === homeClubId)
+      || (team === "away" && player.clubId === awayClubId))
+    .filter((player) => !normalizedQuery || player.name.toLocaleLowerCase().includes(normalizedQuery))
+    .sort((a, b) => (b.rating || 0) - (a.rating || 0) || a.name.localeCompare(b.name));
+
+  useEffect(() => {
+    function closeOnOutsideClick(event: PointerEvent) {
+      if (pickerRef.current && !pickerRef.current.contains(event.target as Node)) setOpen(false);
+    }
+    function closeOnEscape(event: KeyboardEvent) {
+      if (event.key === "Escape") setOpen(false);
+    }
+    document.addEventListener("pointerdown", closeOnOutsideClick);
+    document.addEventListener("keydown", closeOnEscape);
+    return () => {
+      document.removeEventListener("pointerdown", closeOnOutsideClick);
+      document.removeEventListener("keydown", closeOnEscape);
+    };
+  }, []);
+
+  function selectPlayer(player: SpotlightPlayer) {
+    onChange(String(player.id));
+    setOpen(false);
+    setQuery("");
+  }
+
+  return (
+    <div className="field-block player-picker" ref={pickerRef}>
+      <span id="first-scorer-label">First goalscorer</span>
+      <button
+        className="player-picker-trigger"
+        type="button"
+        disabled={disabled}
+        aria-labelledby="first-scorer-label"
+        aria-haspopup="listbox"
+        aria-expanded={open}
+        onClick={() => setOpen((current) => !current)}
+      >
+        {selected ? <PlayerPortrait player={selected} /> : <span className="player-portrait empty">{loading ? "..." : value === NO_GOAL ? "0" : "?"}</span>}
+        <span className="player-trigger-copy">
+          <strong>{selected?.name || (loading ? "Squads are loading" : value === NO_GOAL ? "No goalscorer" : "Choose a player")}</strong>
+          <small>{selected ? `${selected.clubId === homeClubId ? homeName : awayName}${selected.rating ? ` · ${selected.rating} rating` : ""}` : value === NO_GOAL ? "0-0 prediction" : "Search both squads"}</small>
+        </span>
+        <span className="player-trigger-action">{selected ? "Change" : "Choose"}<CaretDown size={16} weight="bold" /></span>
+      </button>
+
+      {open && <div className="player-picker-popover">
+        <div className="player-picker-tools">
+          <label className="player-search">
+            <MagnifyingGlass size={17} />
+            <span className="sr-only">Search players</span>
+            <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search by player name" />
+          </label>
+          <div className="player-team-filter" aria-label="Filter players by team">
+            {[
+              { value: "all", label: "All" },
+              { value: "home", label: homeName },
+              { value: "away", label: awayName },
+            ].map((option) => <button type="button" key={option.value} className={team === option.value ? "active" : ""} onClick={() => setTeam(option.value as "all" | "home" | "away")}>{option.label}</button>)}
+          </div>
+        </div>
+        <div className="player-options" role="listbox" aria-label="First goalscorer">
+          {visiblePlayers.map((player) => <button
+            type="button"
+            role="option"
+            aria-selected={String(player.id) === value}
+            className={String(player.id) === value ? "player-option selected" : "player-option"}
+            key={player.id}
+            onClick={() => selectPlayer(player)}
+          >
+            <PlayerPortrait player={player} />
+            <span><strong>{player.name}</strong><small>{player.clubId === homeClubId ? homeName : awayName}</small></span>
+            {player.rating && <b>{player.rating}</b>}
+            {String(player.id) === value && <Check size={16} weight="bold" />}
+          </button>)}
+          {!visiblePlayers.length && <div className="player-empty"><MagnifyingGlass size={22} /><strong>No player found</strong><span>Try another name or team.</span></div>}
+        </div>
+      </div>}
+    </div>
+  );
+}
+
+function PlayerPortrait({ player }: { player: SpotlightPlayer }) {
+  return <span className="player-portrait"><span>{initials(player.name)}</span><Image key={player.imageUrl} src={player.imageUrl} alt="" width={52} height={52} onError={(event) => { event.currentTarget.style.display = "none"; }} /></span>;
 }
 
 function LeaderboardView() {
