@@ -13,7 +13,7 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  metadataBase: new URL("https://svutl.vercel.app"),
+  metadataBase: new URL("https://under-the-lights.flobl.workers.dev"),
   title: "Under the Lights | Soccerverse Prediction Game",
   description:
     "One Soccerverse match takes centre stage every week. Predict it, score points, and unlock achievements all season.",
