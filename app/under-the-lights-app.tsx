@@ -6,18 +6,23 @@ import {
   Check,
   Clock,
   Crosshair,
+  DiscordLogo,
   Fire,
   GlobeHemisphereWest,
   Lock,
   Medal,
   ShieldCheck,
+  SignIn as SignInIcon,
+  SignOut,
   Sparkle,
   Target,
   Trophy,
   UserCircle,
+  X,
 } from "@phosphor-icons/react";
 import Image from "next/image";
 import { FormEvent, useEffect, useMemo, useState } from "react";
+import { authClient } from "@/lib/auth-client";
 
 type View = "spotlight" | "leaderboard" | "achievements" | "profile";
 
@@ -64,18 +69,11 @@ const histories = [
   { round: "Week 02", match: "Bari 1-2 Palermo", points: 3, badge: null },
 ] as const;
 
-function getDeviceId() {
-  const key = "utl-device-id";
-  const existing = window.localStorage.getItem(key);
-  if (existing) return existing;
-  const next = crypto.randomUUID();
-  window.localStorage.setItem(key, next);
-  return next;
-}
-
 export function UnderTheLightsApp() {
+  const { data: session, isPending: sessionPending } = authClient.useSession();
   const [view, setView] = useState<View>("spotlight");
   const [mobileOpen, setMobileOpen] = useState(false);
+  const [authOpen, setAuthOpen] = useState(false);
   const [prediction, setPrediction] = useState<Prediction>({
     homeScore: 2,
     awayScore: 1,
@@ -114,28 +112,33 @@ export function UnderTheLightsApp() {
 
   async function submitPrediction(event: FormEvent) {
     event.preventDefault();
+    if (!session) {
+      setNotice("Sign in to lock your prediction for the season.");
+      setAuthOpen(true);
+      return;
+    }
+
     setSaving(true);
     setNotice("");
-    window.localStorage.setItem("utl-current-prediction", JSON.stringify(prediction));
 
     try {
-      await fetch("/api/predictions", {
+      const response = await fetch("/api/predictions", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          deviceId: getDeviceId(),
-          displayName: "NightOwl",
           matchId: "wisla-arka-2026",
           ...prediction,
         }),
       });
-    } catch {
-      // The local copy remains available when the hosted database is offline.
+      if (!response.ok) throw new Error("Prediction could not be saved");
+      window.localStorage.setItem("utl-current-prediction", JSON.stringify(prediction));
+      setSubmitted(true);
+      setNotice("Prediction locked. You can edit it until kick-off.");
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : "Prediction could not be saved");
+    } finally {
+      setSaving(false);
     }
-
-    setSubmitted(true);
-    setSaving(false);
-    setNotice("Prediction locked. You can edit it until kick-off.");
   }
 
   return (
@@ -151,10 +154,16 @@ export function UnderTheLightsApp() {
           <NavButton active={view === "profile"} onClick={() => navigate("profile")}>My profile</NavButton>
         </nav>
         <div className="header-actions">
-          <button className="profile-chip" onClick={() => navigate("profile")}>
-            <span className="avatar">NO</span>
-            <span>NightOwl</span>
-          </button>
+          {session ? (
+            <button className="profile-chip" onClick={() => navigate("profile")}>
+              <span className="avatar">{initials(session.user.name)}</span>
+              <span>{session.user.name}</span>
+            </button>
+          ) : (
+            <button className="sign-in-button" onClick={() => setAuthOpen(true)} disabled={sessionPending}>
+              <SignInIcon size={18} weight="bold" /> Sign in
+            </button>
+          )}
           <button className="mobile-menu" onClick={() => setMobileOpen((open) => !open)} aria-label="Toggle navigation">
             <CaretDown size={20} weight="bold" />
           </button>
@@ -176,14 +185,105 @@ export function UnderTheLightsApp() {
         )}
         {view === "leaderboard" && <LeaderboardView />}
         {view === "achievements" && <AchievementsView />}
-        {view === "profile" && <ProfileView onAchievements={() => navigate("achievements")} />}
+        {view === "profile" && (
+          <ProfileView
+            user={session?.user ?? null}
+            onAchievements={() => navigate("achievements")}
+            onSignIn={() => setAuthOpen(true)}
+          />
+        )}
       </main>
+
+      {authOpen && <AuthDialog onClose={() => setAuthOpen(false)} />}
 
       <footer className="site-footer">
         <Image src="/logo.png" alt="Under the Lights" width={707} height={353} />
         <p>One world. One match. Every week.</p>
         <span>A Soccerverse community game</span>
       </footer>
+    </div>
+  );
+}
+
+function initials(name: string) {
+  return name.split(/\s+/).map((part) => part[0]).join("").slice(0, 2).toUpperCase();
+}
+
+function AuthDialog({ onClose }: { onClose: () => void }) {
+  const [mode, setMode] = useState<"sign-in" | "sign-up">("sign-in");
+  const [name, setName] = useState("");
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [pending, setPending] = useState(false);
+  const [error, setError] = useState("");
+  const [discordEnabled, setDiscordEnabled] = useState(false);
+
+  useEffect(() => {
+    fetch("/api/auth-providers")
+      .then((response) => response.json())
+      .then((providers: { discord?: boolean }) => setDiscordEnabled(Boolean(providers.discord)))
+      .catch(() => setDiscordEnabled(false));
+  }, []);
+
+  async function submitEmail(event: FormEvent) {
+    event.preventDefault();
+    setPending(true);
+    setError("");
+
+    const result = mode === "sign-up"
+      ? await authClient.signUp.email({ name, email, password })
+      : await authClient.signIn.email({ email, password });
+
+    setPending(false);
+    if (result.error) {
+      setError(result.error.message || "Authentication failed");
+      return;
+    }
+    onClose();
+  }
+
+  async function signInWithDiscord() {
+    setPending(true);
+    setError("");
+    const result = await authClient.signIn.social({
+      provider: "discord",
+      callbackURL: window.location.href,
+    });
+    if (result.error) {
+      setPending(false);
+      setError("Discord sign-in is waiting for the app credentials.");
+    }
+  }
+
+  return (
+    <div className="auth-backdrop" role="presentation" onMouseDown={(event) => event.target === event.currentTarget && onClose()}>
+      <section className="auth-dialog" role="dialog" aria-modal="true" aria-labelledby="auth-title">
+        <button className="auth-close" onClick={onClose} aria-label="Close sign in"><X size={20} /></button>
+        <span className="auth-kicker">Enter the competition</span>
+        <h2 id="auth-title">{mode === "sign-in" ? "Welcome back." : "Join the season."}</h2>
+        <p>Your identity keeps every prediction, point and badge attached to you.</p>
+
+        <button className="discord-button" onClick={signInWithDiscord} disabled={pending || !discordEnabled}>
+          <DiscordLogo size={21} weight="fill" /> {discordEnabled ? "Continue with Discord" : "Discord setup pending"}
+        </button>
+        <div className="auth-divider"><span>or use email</span></div>
+
+        <form onSubmit={submitEmail}>
+          {mode === "sign-up" && (
+            <label><span>Display name</span><input value={name} onChange={(event) => setName(event.target.value)} required maxLength={32} autoComplete="name" /></label>
+          )}
+          <label><span>Email</span><input type="email" value={email} onChange={(event) => setEmail(event.target.value)} required autoComplete="email" /></label>
+          <label><span>Password</span><input type="password" value={password} onChange={(event) => setPassword(event.target.value)} required minLength={8} autoComplete={mode === "sign-in" ? "current-password" : "new-password"} /></label>
+          {error && <p className="auth-error" role="alert">{error}</p>}
+          <button className="auth-submit" type="submit" disabled={pending}>
+            {pending ? "Please wait..." : mode === "sign-in" ? "Sign in" : "Create account"}
+          </button>
+        </form>
+
+        <button className="auth-switch" onClick={() => { setMode(mode === "sign-in" ? "sign-up" : "sign-in"); setError(""); }}>
+          {mode === "sign-in" ? "New under the lights? Create an account" : "Already competing? Sign in"}
+        </button>
+      </section>
     </div>
   );
 }
@@ -414,13 +514,35 @@ function AchievementsView() {
   );
 }
 
-function ProfileView({ onAchievements }: { onAchievements: () => void }) {
+function ProfileView({
+  user,
+  onAchievements,
+  onSignIn,
+}: {
+  user: { name: string; email: string; image?: string | null } | null;
+  onAchievements: () => void;
+  onSignIn: () => void;
+}) {
+  if (!user) {
+    return (
+      <section className="inner-page signed-out-profile">
+        <UserCircle size={72} weight="duotone" />
+        <h1>Your season starts here.</h1>
+        <p>Sign in to keep your predictions, points and badges together.</p>
+        <button onClick={onSignIn}><SignInIcon size={18} weight="bold" /> Sign in or create an account</button>
+      </section>
+    );
+  }
+
   return (
     <section className="inner-page">
       <div className="profile-hero">
         <div className="profile-avatar"><UserCircle size={70} weight="duotone" /></div>
-        <div><span>Season 1 competitor</span><h1>NightOwl</h1><p>France · Joined Week 1</p></div>
-        <button onClick={onAchievements}>View achievements <ArrowRight size={18} /></button>
+        <div><span>Season 1 competitor</span><h1>{user.name}</h1><p>{user.email}</p></div>
+        <div className="profile-actions">
+          <button onClick={onAchievements}>View achievements <ArrowRight size={18} /></button>
+          <button className="sign-out-button" onClick={() => authClient.signOut()}><SignOut size={18} /> Sign out</button>
+        </div>
       </div>
       <div className="profile-stats">
         <div><strong>74</strong><span>Season points</span></div>

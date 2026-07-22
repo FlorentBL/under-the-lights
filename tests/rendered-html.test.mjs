@@ -40,3 +40,22 @@ test("includes durable prediction storage and brand assets", async () => {
   await access(new URL("../drizzle/0000_glorious_killmonger.sql", import.meta.url));
   await assert.rejects(access(new URL("app/_sites-preview", projectRoot)));
 });
+
+test("protects predictions with Better Auth", async () => {
+  const [predictionRoute, authRoute, providersRoute, authConfig, schema] = await Promise.all([
+    readFile(new URL("../app/api/predictions/route.ts", import.meta.url), "utf8"),
+    readFile(new URL("../app/api/auth/[...all]/route.ts", import.meta.url), "utf8"),
+    readFile(new URL("../app/api/auth-providers/route.ts", import.meta.url), "utf8"),
+    readFile(new URL("../lib/auth.ts", import.meta.url), "utf8"),
+    readFile(new URL("../db/schema.ts", import.meta.url), "utf8"),
+  ]);
+
+  assert.match(predictionRoute, /auth\.api\.getSession/);
+  assert.match(predictionRoute, /Authentication required/);
+  assert.match(authRoute, /toNextJsHandler/);
+  assert.match(providersRoute, /DISCORD_CLIENT_ID/);
+  assert.match(authConfig, /emailAndPassword/);
+  assert.match(authConfig, /discord/);
+  assert.match(schema, /sqliteTable\("session"/);
+  assert.match(schema, /sqliteTable\("account"/);
+});

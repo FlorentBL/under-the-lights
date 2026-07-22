@@ -23,6 +23,8 @@ npm run dev
 
 The application runs as a full-stack Cloudflare Worker and uses a D1 binding named `DB` for persistent data.
 
+Authentication is provided by Better Auth. Email/password accounts work out of the box. Discord OAuth is enabled when `DISCORD_CLIENT_ID` and `DISCORD_CLIENT_SECRET` are configured as Worker secrets.
+
 ## Cloudflare development
 
 ```bash
@@ -40,5 +42,20 @@ Apply migrations and deploy to Cloudflare:
 
 ```bash
 npm run db:migrate:remote
+npm run deploy
+```
+
+## Discord OAuth
+
+Create an application in the Discord Developer Portal and register these redirects:
+
+- `http://localhost:3000/api/auth/callback/discord`
+- `https://under-the-lights.flobl.workers.dev/api/auth/callback/discord`
+
+Then add the credentials without committing them:
+
+```bash
+npx wrangler secret put DISCORD_CLIENT_ID
+npx wrangler secret put DISCORD_CLIENT_SECRET
 npm run deploy
 ```
