@@ -20,6 +20,12 @@ test("ships the Under the Lights product surface", async () => {
   assert.match(app, /Leaderboard/);
   assert.match(app, /Achievements/);
   assert.match(app, /Prediction history/);
+  assert.match(app, /How it works/);
+  assert.match(app, /The project/);
+  assert.match(app, /function HowItWorksView/);
+  assert.match(app, /Fifteen points are available/);
+  assert.match(app, /function ProjectView/);
+  assert.match(app, /How the Spotlight is chosen/);
   assert.match(css, /prefers-reduced-motion/);
   assert.doesNotMatch(packageJson, /react-loading-skeleton/);
   assert.doesNotMatch(app, /[—–]/);

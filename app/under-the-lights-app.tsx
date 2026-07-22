@@ -1,14 +1,22 @@
 "use client";
 
 import {
+  ArrowSquareOut,
   ArrowRight,
+  BookOpen,
+  Broadcast,
+  CalendarCheck,
   CaretDown,
+  ChartBar,
   Check,
   Clock,
   Crosshair,
+  Database,
   DiscordLogo,
   Fire,
   GlobeHemisphereWest,
+  GithubLogo,
+  Lightbulb,
   Lock,
   MagnifyingGlass,
   Medal,
@@ -16,9 +24,12 @@ import {
   SignIn as SignInIcon,
   SignOut,
   Sparkle,
+  Strategy,
+  SoccerBall,
   Target,
   Trophy,
   UserCircle,
+  UsersThree,
   X,
 } from "@phosphor-icons/react";
 import Image from "next/image";
@@ -28,7 +39,7 @@ import { positionCategories, positionSummary, primaryPositionCategory, type Posi
 import { GOAL_WINDOWS, MAX_PREDICTION_POINTS, NO_GOAL, type GoalWindow, type ScoreBreakdown } from "@/lib/scoring";
 import type { BadgeKey, SeasonPayload, SeasonViewer } from "@/lib/season";
 
-type View = "spotlight" | "leaderboard" | "achievements" | "profile";
+type View = "spotlight" | "how-it-works" | "leaderboard" | "achievements" | "project" | "profile";
 
 type Prediction = {
   homeScore: number;
@@ -260,8 +271,10 @@ export function UnderTheLightsApp() {
         </button>
         <nav className={mobileOpen ? "main-nav is-open" : "main-nav"} aria-label="Main navigation">
           <NavButton active={view === "spotlight"} onClick={() => navigate("spotlight")}>Spotlight</NavButton>
+          <NavButton active={view === "how-it-works"} onClick={() => navigate("how-it-works")}>How it works</NavButton>
           <NavButton active={view === "leaderboard"} onClick={() => navigate("leaderboard")}>Leaderboard</NavButton>
           <NavButton active={view === "achievements"} onClick={() => navigate("achievements")}>Achievements</NavButton>
+          <NavButton active={view === "project"} onClick={() => navigate("project")}>The project</NavButton>
           <NavButton active={view === "profile"} onClick={() => navigate("profile")}>My profile</NavButton>
           {isAdmin && <a className="nav-button admin-link" href="/admin"><Lock size={15} weight="bold" /> Admin</a>}
         </nav>
@@ -298,8 +311,10 @@ export function UnderTheLightsApp() {
             onLeaderboard={() => navigate("leaderboard")}
           />
         )}
+        {view === "how-it-works" && <HowItWorksView spotlight={spotlight} onPlay={() => navigate("spotlight")} />}
         {view === "leaderboard" && <LeaderboardView leaders={season.leaderboard} loading={seasonLoading} />}
         {view === "achievements" && <AchievementsView viewer={season.viewer} user={session?.user ?? null} loading={seasonLoading} onSignIn={() => setAuthOpen(true)} />}
+        {view === "project" && <ProjectView onPlay={() => navigate("spotlight")} />}
         {view === "profile" && <ProfileView user={session?.user ?? null} viewer={season.viewer} loading={seasonLoading} onAchievements={() => navigate("achievements")} onSignIn={() => setAuthOpen(true)} />}
       </main>
 
@@ -677,6 +692,104 @@ function PlayerPortrait({ player }: { player: SpotlightPlayer }) {
 function PositionBadge({ position }: { position: number | null }) {
   const category = primaryPositionCategory(position)?.toLocaleLowerCase() || "unknown";
   return <b className={`position-code ${category}`}>{positionSummary(position)}</b>;
+}
+
+function HowItWorksView({ spotlight, onPlay }: { spotlight: Spotlight; onPlay: () => void }) {
+  const exampleScorer = spotlight.players.find((player) => positionCategories(player.position).includes("FWD"))?.name || "your chosen forward";
+  const playLabel = spotlight.fixtureId ? `Play ${spotlight.homeName} vs ${spotlight.awayName}` : "Play this week";
+  const flow = [
+    { icon: GlobeHemisphereWest, title: "Discover", text: "One fixture from the wider Soccerverse world becomes the weekly Spotlight." },
+    { icon: Strategy, title: "Predict", text: "Call the score, first scorer, first-goal window and first team to score." },
+    { icon: Lock, title: "Lock", text: "Save your call with one account. You can edit every detail until kick-off." },
+    { icon: Trophy, title: "Score", text: "The final match data awards points, updates the table and unlocks badges." },
+  ];
+  const scoring = [
+    { label: "Match outcome", points: 3, text: "Correct home win, draw or away win." },
+    { label: "Exact score", points: 5, text: "A bonus on top of the outcome points." },
+    { label: "First scorer", points: 4, text: "Name the player who scores first." },
+    { label: "Goal window", points: 2, text: "Place the opening goal in the right time band." },
+    { label: "First team", points: 1, text: "Choose which club opens the scoring." },
+  ];
+
+  return (
+    <section className="explainer-page">
+      <section className="guide-hero">
+        <div className="guide-hero-copy"><span><BookOpen size={18} weight="fill" /> Game guide</span><h1>One match.<br />Four calls.</h1><p>A weekly prediction game built around one carefully selected Soccerverse fixture.</p><button onClick={onPlay}>{playLabel}<ArrowRight size={18} weight="bold" /></button></div>
+        <div className="guide-hero-visual">
+          <Image src="/stadium-night.jpg" alt="A floodlit stadium ready for the weekly Spotlight" fill sizes="(max-width: 820px) 100vw, 48vw" />
+          <div className="guide-fixture"><span>This week</span><strong>{spotlight.homeName}<i>vs</i>{spotlight.awayName}</strong><small>{spotlight.competitionName}</small></div>
+        </div>
+      </section>
+
+      <section className="game-flow" aria-labelledby="game-flow-title">
+        <div className="guide-heading"><h2 id="game-flow-title">The complete game loop</h2><p>From Monday&apos;s selection to the final whistle, every action has a clear place.</p></div>
+        <div className="flow-track">{flow.map(({ icon: Icon, title, text }) => <article key={title}><Icon size={27} weight="duotone" /><h3>{title}</h3><p>{text}</p></article>)}</div>
+      </section>
+
+      <section className="prediction-tutorial" aria-labelledby="tutorial-title">
+        <div className="tutorial-copy"><span>Worked example</span><h2 id="tutorial-title">Build one complete call.</h2><p>The four answers describe the same match story. A 0-0 prediction automatically switches every goal detail to no goal.</p></div>
+        <div className="tutorial-board">
+          <div className="tutorial-score"><span>{spotlight.homeName}</span><strong>2 - 1</strong><span>{spotlight.awayName}</span></div>
+          <div className="tutorial-details"><div><Crosshair size={20} /><span>First scorer</span><strong>{exampleScorer}</strong></div><div><Clock size={20} /><span>Goal window</span><strong>16-30</strong></div><div><SoccerBall size={20} /><span>Scores first</span><strong>{spotlight.homeName}</strong></div></div>
+          <p>If the final result matches every call above, this prediction earns the full 15 points.</p>
+        </div>
+      </section>
+
+      <section className="scoring-guide" aria-labelledby="scoring-title">
+        <div className="guide-heading"><h2 id="scoring-title">Fifteen points are available</h2><p>Each correct detail scores independently, so a missed result can still earn useful points.</p></div>
+        <div className="score-map">{scoring.map((item) => <article key={item.label}><span>+{item.points}</span><div><h3>{item.label}</h3><p>{item.text}</p></div></article>)}</div>
+      </section>
+
+      <section className="rules-guide" aria-labelledby="rules-title">
+        <div><CalendarCheck size={36} weight="duotone" /><h2 id="rules-title">Rules worth knowing</h2><p>No hidden mechanics. The same rules apply to every weekly Spotlight.</p></div>
+        <div className="rules-list">
+          <details><summary>Can I change a prediction?</summary><p>Yes. Update it as often as you want before the published kick-off time. The server rejects every change after kick-off.</p></details>
+          <details><summary>What happens after the match?</summary><p>Under the Lights reads the final score and match events, calculates each category, then updates your history, badges and season rank.</p></details>
+          <details><summary>How does a 0-0 prediction work?</summary><p>Select 0-0 and the scorer, window and first-team fields become no goal. A perfect goalless call can still earn 15 points.</p></details>
+          <details><summary>Why do I need an account?</summary><p>Your account keeps predictions, points and achievements attached to one season identity across devices.</p></details>
+          <details><summary>When do new matches appear?</summary><p>The Spotlight Radar prepares a new weekend shortlist every Monday. An editor then publishes the match that best fits the project.</p></details>
+        </div>
+      </section>
+
+      <section className="guide-cta"><div><h2>Ready for this week?</h2><p>Read the match story, study both squads and lock your four calls.</p></div><button onClick={onPlay}>Open the Spotlight<ArrowRight size={18} weight="bold" /></button></section>
+    </section>
+  );
+}
+
+function ProjectView({ onPlay }: { onPlay: () => void }) {
+  return (
+    <section className="project-page">
+      <section className="project-hero">
+        <div className="project-hero-copy"><span><Lightbulb size={18} weight="fill" /> The project</span><h1>Hidden leagues.<br />Shared stage.</h1><p>Under the Lights turns Soccerverse&apos;s global football world into one shared weekly prediction ritual.</p></div>
+        <div className="project-hero-image"><Image src="/stadium-night.jpg" alt="Football under stadium floodlights" fill priority sizes="(max-width: 820px) 100vw, 52vw" /></div>
+      </section>
+
+      <section className="project-manifesto"><strong>Most football games concentrate attention on familiar names.</strong><p>Soccerverse contains far more: lower divisions, unfamiliar clubs, active managers and competitive stories across the world. Under the Lights exists to find one of those stories and invite everyone to care about it together.</p></section>
+
+      <section className="radar-story" aria-labelledby="radar-story-title">
+        <div className="radar-intro"><Broadcast size={38} weight="duotone" /><h2 id="radar-story-title">How the Spotlight is chosen</h2><p>Automation builds the shortlist. Editorial judgment chooses the stage.</p></div>
+        <div className="radar-path">
+          <article><CalendarCheck size={25} /><h3>Read the weekend</h3><p>The Radar scans the Soccerverse calendar for the next playable weekend.</p></article>
+          <article><ChartBar size={25} /><h3>Measure the stakes</h3><p>League positions, points, form and squad balance reveal the strongest sporting stories.</p></article>
+          <article><UsersThree size={25} /><h3>Look beyond fame</h3><p>Active managers, division level and discovery value reward matches worth finding.</p></article>
+          <article><Broadcast size={25} /><h3>Publish one Spotlight</h3><p>Twenty candidates reach the control room. One edited match story goes live.</p></article>
+        </div>
+      </section>
+
+      <section className="project-principles">
+        <article><GlobeHemisphereWest size={30} weight="duotone" /><h2>A global lens</h2><p>The country and division can change every week. The selection follows the strongest story, not a fixed league.</p></article>
+        <article><Strategy size={30} weight="duotone" /><h2>Skill over luck</h2><p>Five scoring categories reward a coherent reading of the match, not a single binary guess.</p></article>
+        <article><Medal size={30} weight="duotone" /><h2>A season memory</h2><p>Every result builds a permanent history of points, exact calls, streaks, countries and badges.</p></article>
+      </section>
+
+      <section className="built-open">
+        <div><GithubLogo size={40} weight="duotone" /><h2>Built in public</h2><p>Under the Lights is an open-source community companion to Soccerverse. The code, scoring logic and product evolution can be inspected on GitHub.</p><a href="https://github.com/FlorentBL/under-the-lights" target="_blank" rel="noreferrer">View the repository<ArrowSquareOut size={17} weight="bold" /></a></div>
+        <div className="project-stack"><div><Database size={23} /><span>Persistent game data</span><strong>Cloudflare D1</strong></div><div><ShieldCheck size={23} /><span>Player identity</span><strong>Better Auth</strong></div><div><Crosshair size={23} /><span>Match selection</span><strong>Spotlight Radar</strong></div></div>
+      </section>
+
+      <section className="community-note"><div><UsersThree size={35} weight="duotone" /><h2>A community project</h2><p>Under the Lights adds a weekly prediction layer around Soccerverse. Match, club and player information comes from the Soccerverse world, while this experience is developed openly by the community.</p></div><div className="community-actions"><a href="https://guide.soccerverse.com" target="_blank" rel="noreferrer">Discover Soccerverse<ArrowSquareOut size={17} /></a><button onClick={onPlay}>Play the Spotlight<ArrowRight size={18} /></button></div></section>
+    </section>
+  );
 }
 
 function SeasonEmpty({ title, description, compact = false }: { title: string; description: string; compact?: boolean }) {
