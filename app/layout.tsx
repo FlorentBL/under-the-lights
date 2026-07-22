@@ -21,7 +21,7 @@ export const metadata: Metadata = {
     title: "Under the Lights",
     description: "One world. One match. Every week.",
     type: "website",
-    images: [{ url: "/og.png", width: 1736, height: 905, alt: "Under the Lights Soccerverse prediction game" }],
+    images: [{ url: "/og.png", width: 1280, height: 640, alt: "Soccerverse Under the Lights prediction game" }],
   },
   twitter: {
     card: "summary_large_image",

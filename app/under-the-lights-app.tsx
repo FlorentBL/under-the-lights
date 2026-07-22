@@ -141,7 +141,7 @@ export function UnderTheLightsApp() {
     <div className="app-shell">
       <header className="site-header">
         <button className="brand-button" onClick={() => navigate("spotlight")} aria-label="Under the Lights home">
-          <Image src="/logo.png" alt="Under the Lights" className="brand-logo" width={707} height={353} priority />
+          <Image src="/logo.png" alt="Soccerverse Under the Lights" className="brand-logo" width={1280} height={640} priority />
         </button>
         <nav className={mobileOpen ? "main-nav is-open" : "main-nav"} aria-label="Main navigation">
           <NavButton active={view === "spotlight"} onClick={() => navigate("spotlight")}>Spotlight</NavButton>
@@ -187,7 +187,7 @@ export function UnderTheLightsApp() {
       {authOpen && <AuthDialog onClose={() => setAuthOpen(false)} />}
 
       <footer className="site-footer">
-        <Image src="/logo.png" alt="Under the Lights" width={707} height={353} />
+        <Image src="/logo.png" alt="Soccerverse Under the Lights" width={1280} height={640} />
         <p>One world. One match. Every week.</p>
         <span>A Soccerverse community game</span>
       </footer>
