@@ -21,7 +21,7 @@ import {
   X,
 } from "@phosphor-icons/react";
 import Image from "next/image";
-import { FormEvent, useEffect, useMemo, useState } from "react";
+import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import { authClient } from "@/lib/auth-client";
 
 type View = "spotlight" | "leaderboard" | "achievements" | "profile";
@@ -141,7 +141,7 @@ export function UnderTheLightsApp() {
     <div className="app-shell">
       <header className="site-header">
         <button className="brand-button" onClick={() => navigate("spotlight")} aria-label="Under the Lights home">
-          <Image src="/logo.png" alt="Soccerverse Under the Lights" className="brand-logo" width={1280} height={640} priority />
+          <Image src="/logo.png" alt="Soccerverse Under the Lights" className="brand-logo" width={1280} height={540} priority />
         </button>
         <nav className={mobileOpen ? "main-nav is-open" : "main-nav"} aria-label="Main navigation">
           <NavButton active={view === "spotlight"} onClick={() => navigate("spotlight")}>Spotlight</NavButton>
@@ -187,7 +187,7 @@ export function UnderTheLightsApp() {
       {authOpen && <AuthDialog onClose={() => setAuthOpen(false)} />}
 
       <footer className="site-footer">
-        <Image src="/logo.png" alt="Soccerverse Under the Lights" width={1280} height={640} />
+        <Image src="/logo.png" alt="Soccerverse Under the Lights" width={1280} height={540} />
         <p>One world. One match. Every week.</p>
         <span>A Soccerverse community game</span>
       </footer>
@@ -280,11 +280,21 @@ function SpotlightView({ prediction, setPrediction, submitted, saving, notice, p
   onSubmit: (event: FormEvent) => void;
   onLeaderboard: () => void;
 }) {
+  const heroRef = useRef<HTMLElement>(null);
+
+  function moveHeroLight(event: React.PointerEvent<HTMLElement>) {
+    if (event.pointerType !== "mouse" || !heroRef.current) return;
+    const bounds = heroRef.current.getBoundingClientRect();
+    heroRef.current.style.setProperty("--spot-x", `${event.clientX - bounds.left}px`);
+    heroRef.current.style.setProperty("--spot-y", `${event.clientY - bounds.top}px`);
+  }
+
   return (
     <>
-      <section className="match-hero">
+      <section className="match-hero" ref={heroRef} onPointerMove={moveHeroLight}>
         <Image className="hero-photo" src="/stadium-night.jpg" alt="Floodlit football stadium before kick-off" fill priority quality={88} sizes="100vw" />
         <div className="hero-scrim" />
+        <div className="hero-pointer-light" aria-hidden="true" />
         <div className="hero-copy">
           <div className="eyebrow"><GlobeHemisphereWest size={16} weight="bold" /> This week in Poland</div>
           <h1>One match.<br /><em>All eyes.</em></h1>
