@@ -24,6 +24,7 @@ import {
 import Image from "next/image";
 import { FormEvent, useEffect, useRef, useState } from "react";
 import { authClient } from "@/lib/auth-client";
+import { positionCategories, positionSummary, primaryPositionCategory, type PositionCategory } from "@/lib/player-positions";
 import { GOAL_WINDOWS, MAX_PREDICTION_POINTS, NO_GOAL, type GoalWindow } from "@/lib/scoring";
 
 type View = "spotlight" | "leaderboard" | "achievements" | "profile";
@@ -542,6 +543,7 @@ function PlayerPicker({ players, homeClubId, awayClubId, homeName, awayName, val
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
   const [team, setTeam] = useState<"all" | "home" | "away">("all");
+  const [positionCategory, setPositionCategory] = useState<"all" | PositionCategory>("all");
   const pickerRef = useRef<HTMLDivElement>(null);
   const selected = players.find((player) => String(player.id) === value);
   const normalizedQuery = query.trim().toLocaleLowerCase();
@@ -549,7 +551,10 @@ function PlayerPicker({ players, homeClubId, awayClubId, homeName, awayName, val
     .filter((player) => team === "all"
       || (team === "home" && player.clubId === homeClubId)
       || (team === "away" && player.clubId === awayClubId))
-    .filter((player) => !normalizedQuery || player.name.toLocaleLowerCase().includes(normalizedQuery))
+    .filter((player) => positionCategory === "all" || positionCategories(player.position).includes(positionCategory))
+    .filter((player) => !normalizedQuery
+      || player.name.toLocaleLowerCase().includes(normalizedQuery)
+      || positionSummary(player.position).toLocaleLowerCase().includes(normalizedQuery))
     .sort((a, b) => (b.rating || 0) - (a.rating || 0) || a.name.localeCompare(b.name));
 
   useEffect(() => {
@@ -588,7 +593,7 @@ function PlayerPicker({ players, homeClubId, awayClubId, homeName, awayName, val
         {selected ? <PlayerPortrait player={selected} /> : <span className="player-portrait empty">{loading ? "..." : value === NO_GOAL ? "0" : "?"}</span>}
         <span className="player-trigger-copy">
           <strong>{selected?.name || (loading ? "Squads are loading" : value === NO_GOAL ? "No goalscorer" : "Choose a player")}</strong>
-          <small>{selected ? `${selected.clubId === homeClubId ? homeName : awayName}${selected.rating ? ` · ${selected.rating} rating` : ""}` : value === NO_GOAL ? "0-0 prediction" : "Search both squads"}</small>
+          {selected ? <small><span>{selected.clubId === homeClubId ? homeName : awayName}</span><PositionBadge position={selected.position} />{selected.rating && <span>{selected.rating} OVR</span>}</small> : <small>{value === NO_GOAL ? "0-0 prediction" : "Search both squads"}</small>}
         </span>
         <span className="player-trigger-action">{selected ? "Change" : "Choose"}<CaretDown size={16} weight="bold" /></span>
       </button>
@@ -607,6 +612,15 @@ function PlayerPicker({ players, homeClubId, awayClubId, homeName, awayName, val
               { value: "away", label: awayName },
             ].map((option) => <button type="button" key={option.value} className={team === option.value ? "active" : ""} onClick={() => setTeam(option.value as "all" | "home" | "away")}>{option.label}</button>)}
           </div>
+          <div className="player-position-filter" aria-label="Filter players by position">
+            {[
+              { value: "all", label: "All", title: "All positions" },
+              { value: "FWD", label: "FWD", title: "Forwards" },
+              { value: "MID", label: "MID", title: "Midfielders" },
+              { value: "DEF", label: "DEF", title: "Defenders" },
+              { value: "GK", label: "GK", title: "Goalkeepers" },
+            ].map((option) => <button type="button" key={option.value} title={option.title} aria-pressed={positionCategory === option.value} className={positionCategory === option.value ? "active" : ""} onClick={() => setPositionCategory(option.value as "all" | PositionCategory)}>{option.label}</button>)}
+          </div>
         </div>
         <div className="player-options" role="listbox" aria-label="First goalscorer">
           {visiblePlayers.map((player) => <button
@@ -618,11 +632,11 @@ function PlayerPicker({ players, homeClubId, awayClubId, homeName, awayName, val
             onClick={() => selectPlayer(player)}
           >
             <PlayerPortrait player={player} />
-            <span><strong>{player.name}</strong><small>{player.clubId === homeClubId ? homeName : awayName}</small></span>
+            <span><strong>{player.name}</strong><small><span>{player.clubId === homeClubId ? homeName : awayName}</span><PositionBadge position={player.position} /></small></span>
             {player.rating && <b>{player.rating}</b>}
             {String(player.id) === value && <Check size={16} weight="bold" />}
           </button>)}
-          {!visiblePlayers.length && <div className="player-empty"><MagnifyingGlass size={22} /><strong>No player found</strong><span>Try another name or team.</span></div>}
+          {!visiblePlayers.length && <div className="player-empty"><MagnifyingGlass size={22} /><strong>No player found</strong><span>Try another position, name or team.</span></div>}
         </div>
       </div>}
     </div>
@@ -631,6 +645,11 @@ function PlayerPicker({ players, homeClubId, awayClubId, homeName, awayName, val
 
 function PlayerPortrait({ player }: { player: SpotlightPlayer }) {
   return <span className="player-portrait"><span>{initials(player.name)}</span><Image key={player.imageUrl} src={player.imageUrl} alt="" width={52} height={52} onError={(event) => { event.currentTarget.style.display = "none"; }} /></span>;
+}
+
+function PositionBadge({ position }: { position: number | null }) {
+  const category = primaryPositionCategory(position)?.toLocaleLowerCase() || "unknown";
+  return <b className={`position-code ${category}`}>{positionSummary(position)}</b>;
 }
 
 function LeaderboardView() {
