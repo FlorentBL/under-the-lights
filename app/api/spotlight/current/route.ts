@@ -4,7 +4,7 @@ import { env } from "cloudflare:workers";
 export async function GET() {
   const db = (env as Cloudflare.Env).DB;
   const row = await db.prepare(`SELECT s.editorial_title, s.editorial_summary, s.week_key,
-      c.fixture_id, c.kickoff, c.country_code, c.competition_name,
+      c.fixture_id, c.competition_id, c.division_level, c.kickoff, c.country_code, c.competition_name,
       c.home_club_id, c.away_club_id, c.home_name, c.away_name,
       c.home_position, c.away_position, c.home_points, c.away_points,
       c.home_record, c.away_record, c.home_manager, c.away_manager,
@@ -22,6 +22,8 @@ export async function GET() {
   ]);
   return NextResponse.json({ spotlight: {
     fixtureId: row.fixture_id,
+    competitionId: row.competition_id,
+    divisionLevel: row.division_level,
     kickoff: row.kickoff,
     countryCode: row.country_code,
     competitionName: row.competition_name,

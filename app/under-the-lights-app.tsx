@@ -62,6 +62,8 @@ type SpotlightPlayer = {
 
 type Spotlight = {
   fixtureId: number;
+  competitionId: number;
+  divisionLevel: number;
   kickoff: number;
   homeClubId: number;
   awayClubId: number;
@@ -96,6 +98,8 @@ type Spotlight = {
 
 const fallbackSpotlight: Spotlight = {
   fixtureId: 0,
+  competitionId: 0,
+  divisionLevel: 1,
   kickoff: 1785004200,
   homeClubId: 0,
   awayClubId: 0,
@@ -482,6 +486,7 @@ function SpotlightView({ spotlight, prediction, setPrediction, submitted, saving
             <TeamMark initials={initials(spotlight.awayName)} name={spotlight.awayName} position={spotlight.awayPosition} competition={spotlight.competitionName} />
           </div>
           <div className="fixture-story"><strong>{spotlight.title}</strong><p>{spotlight.summary}</p></div>
+          <SoccerverseLinks spotlight={spotlight} />
         </article>
       </section>
 
@@ -555,6 +560,13 @@ function ScoreBreakdown({ score }: { score: PredictionScore }) {
 
 function TeamMark({ initials: mark, name, position, competition, home = false }: { initials: string; name: string; position: number | null; competition: string; home?: boolean }) {
   return <div className="team-mark"><div className={home ? "team-badge home" : "team-badge"}>{mark}</div><strong>{name}</strong><span>{position ? `#${position}` : "Unranked"} in {competition}</span></div>;
+}
+
+function SoccerverseLinks({ spotlight }: { spotlight: Spotlight }) {
+  if (!spotlight.fixtureId || !spotlight.countryCode || spotlight.divisionLevel < 0) return null;
+  const matchUrl = `https://play.soccerverse.com/match/${spotlight.fixtureId}`;
+  const leagueUrl = `https://play.soccerverse.com/country/${spotlight.countryCode}/league/${spotlight.divisionLevel + 1}`;
+  return <div className="soccerverse-links"><span>Open in Soccerverse</span><div><a href={matchUrl} target="_blank" rel="noreferrer" aria-label={`${spotlight.homeName} vs ${spotlight.awayName} on Soccerverse`}>Match<ArrowSquareOut size={15} weight="bold" /></a><a href={leagueUrl} target="_blank" rel="noreferrer" aria-label={`${spotlight.competitionName} on Soccerverse`}>League<ArrowSquareOut size={15} weight="bold" /></a></div></div>;
 }
 
 function positionMatchup(spotlight: Spotlight) {
