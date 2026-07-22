@@ -41,6 +41,19 @@ test("includes durable prediction storage and brand assets", async () => {
   await assert.rejects(access(new URL("app/_sites-preview", projectRoot)));
 });
 
+test("uses a visual Soccerverse player picker", async () => {
+  const [app, spotlightRoute] = await Promise.all([
+    readFile(new URL("../app/under-the-lights-app.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../app/api/spotlight/current/route.ts", import.meta.url), "utf8"),
+  ]);
+
+  assert.match(app, /function PlayerPicker/);
+  assert.match(app, /Search by player name/);
+  assert.match(app, /role="listbox"/);
+  assert.match(spotlightRoute, /player_webp/);
+  assert.doesNotMatch(app, /<select value=\{prediction\.firstScorer\}/);
+});
+
 test("protects predictions with Better Auth", async () => {
   const [predictionRoute, authRoute, providersRoute, authConfig, schema] = await Promise.all([
     readFile(new URL("../app/api/predictions/route.ts", import.meta.url), "utf8"),

@@ -48,6 +48,7 @@ export async function GET() {
       name: player.player_name,
       position: player.position,
       rating: player.rating,
+      imageUrl: `https://downloads.soccerverse.com/svpack/packv2/player_webp/${player.player_id}.webp`,
     })),
     result: result ? {
       homeScore: result.home_score,
