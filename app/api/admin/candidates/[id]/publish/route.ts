@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { env } from "cloudflare:workers";
 import { requireAdmin } from "@/lib/admin-auth";
+import { syncSpotlightPlayers } from "@/lib/soccerverse-match";
 
 export async function POST(request: Request, context: { params: Promise<{ id: string }> }) {
   const access = await requireAdmin(request);
@@ -21,5 +22,17 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
       editorial_title = excluded.editorial_title, editorial_summary = excluded.editorial_summary,
       published_by = excluded.published_by, published_at = excluded.published_at, updated_at = excluded.updated_at`)
     .bind(crypto.randomUUID(), candidate.week_key, id, title, summary, access.session.user.id, now, now).run();
-  return NextResponse.json({ ok: true, weekKey: candidate.week_key, candidateId: id });
+  let playersSynced = 0;
+  try {
+    playersSynced = (await syncSpotlightPlayers(db, {
+      fixtureId: Number(candidate.fixture_id),
+      matchId: String(candidate.fixture_id),
+      kickoff: Number(candidate.kickoff),
+      homeClubId: Number(candidate.home_club_id),
+      awayClubId: Number(candidate.away_club_id),
+    })).length;
+  } catch {
+    // The settlement cron retries squad synchronization before kick-off.
+  }
+  return NextResponse.json({ ok: true, weekKey: candidate.week_key, candidateId: id, playersSynced });
 }

@@ -2,6 +2,7 @@
 import { handleImageOptimization, DEFAULT_DEVICE_SIZES, DEFAULT_IMAGE_SIZES } from "vinext/server/image-optimization";
 import handler from "vinext/server/app-router-entry";
 import { runAndPersistRadar } from "../lib/soccerverse-radar";
+import { settlePublishedSpotlights } from "../lib/soccerverse-match";
 
 interface Env {
   ASSETS: Fetcher;
@@ -51,7 +52,11 @@ const worker = {
     return handler.fetch(request, env, ctx);
   },
   async scheduled(controller: ScheduledController, env: Env, ctx: ExecutionContext) {
-    ctx.waitUntil(runAndPersistRadar(env.DB, "system:monday-radar", new Date(controller.scheduledTime)));
+    if (controller.cron === "0 7 * * 1") {
+      ctx.waitUntil(runAndPersistRadar(env.DB, "system:monday-radar", new Date(controller.scheduledTime)));
+      return;
+    }
+    ctx.waitUntil(settlePublishedSpotlights(env.DB, controller.scheduledTime));
   },
 };
 
