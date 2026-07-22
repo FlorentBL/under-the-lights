@@ -26,6 +26,9 @@ test("ships the Under the Lights product surface", async () => {
   assert.match(app, /Fifteen points are available/);
   assert.match(app, /function ProjectView/);
   assert.match(app, /How the Spotlight is chosen/);
+  assert.match(app, /https:\/\/play\.soccerverse\.com\/match\/\$\{spotlight\.fixtureId\}/);
+  assert.match(app, /league\/\$\{spotlight\.divisionLevel \+ 1\}/);
+  assert.match(app, /Open in Soccerverse/);
   assert.match(css, /prefers-reduced-motion/);
   assert.doesNotMatch(packageJson, /react-loading-skeleton/);
   assert.doesNotMatch(app, /[—–]/);
@@ -57,6 +60,8 @@ test("uses a visual Soccerverse player picker", async () => {
   assert.match(app, /Search by player name/);
   assert.match(app, /role="listbox"/);
   assert.match(spotlightRoute, /player_webp/);
+  assert.match(spotlightRoute, /competition_id/);
+  assert.match(spotlightRoute, /division_level/);
   assert.doesNotMatch(app, /<select value=\{prediction\.firstScorer\}/);
 });
 

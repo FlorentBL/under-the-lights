@@ -256,6 +256,12 @@ button:focus-visible, a:focus-visible, select:focus-visible, input:focus-visible
 .fixture-story { padding-top: 20px; border-top: 1px solid var(--line); }
 .fixture-story strong { font-size: 18px; }
 .fixture-story p { margin: 6px 0 0; color: #969a96; font-size: 13px; line-height: 1.5; }
+.soccerverse-links { min-height: 48px; display: flex; align-items: center; justify-content: space-between; gap: 18px; margin-top: 18px; padding-top: 16px; border-top: 1px solid var(--line); }
+.soccerverse-links > span { color: #858986; font-size: 10px; font-weight: 780; letter-spacing: .1em; text-transform: uppercase; }
+.soccerverse-links > div { display: flex; align-items: center; gap: 8px; }
+.soccerverse-links a { min-height: 36px; display: inline-flex; align-items: center; gap: 7px; padding: 0 11px; border: 1px solid var(--line-strong); border-radius: 9px; background: rgba(255,255,255,.035); color: #c9cbc6; font-size: 11px; font-weight: 780; text-decoration: none; transition: border-color .2s ease, background .2s ease, color .2s ease, transform .2s ease; }
+.soccerverse-links a:hover { border-color: rgba(217,172,67,.48); background: rgba(217,172,67,.08); color: var(--gold-bright); transform: translateY(-1px); }
+.soccerverse-links a:active { transform: translateY(1px); }
 
 .match-dossier {
   max-width: 1500px;
@@ -778,6 +784,9 @@ select {
   .team-mark > span { font-size: 9px; }
   .versus small { max-width: 62px; white-space: normal; }
   .fixture-heading time { font-size: 10px; }
+  .soccerverse-links { align-items: flex-start; flex-direction: column; gap: 10px; }
+  .soccerverse-links > div, .soccerverse-links a { width: 100%; }
+  .soccerverse-links a { justify-content: center; }
   .match-dossier strong { font-size: 20px; }
   .dossier-intro strong { font-size: 23px; }
   .section-heading h2, .week-leaders h2 { font-size: 44px; }
