@@ -166,3 +166,13 @@ export const predictionScores = sqliteTable("prediction_scores", {
   totalPoints: integer("total_points").notNull(),
   scoredAt: integer("scored_at").notNull(),
 }, (table) => [index("prediction_scores_total_idx").on(table.totalPoints)]);
+
+export const participantBadges = sqliteTable("participant_badges", {
+  id: text("id").primaryKey(),
+  participantId: text("participant_id").notNull().references(() => participants.id, { onDelete: "cascade" }),
+  badgeKey: text("badge_key").notNull(),
+  earnedAt: integer("earned_at").notNull(),
+}, (table) => [
+  uniqueIndex("participant_badges_participant_key_idx").on(table.participantId, table.badgeKey),
+  index("participant_badges_earned_idx").on(table.earnedAt),
+]);

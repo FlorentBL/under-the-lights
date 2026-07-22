@@ -1,5 +1,6 @@
 import { GOAL_WINDOWS, NO_GOAL, goalWindowForMinute, scorePrediction, type GoalWindow } from "@/lib/scoring";
 import { validGoals, type MatchEvent } from "@/lib/soccerverse-events";
+import { awardParticipantBadges } from "@/lib/season-data";
 
 const GSP_URL = "https://services.soccerverse.com/gsp/";
 const REST_URL = "https://services.soccerverse.com/api";
@@ -126,6 +127,7 @@ export async function settlePublishedSpotlights(db: D1Database, now = Date.now()
   let playersSynced = 0;
   let matchesSettled = 0;
   let predictionsScored = 0;
+  let badgesAwarded = 0;
 
   for (const row of published.results || []) {
     const fixture: PublishedFixture = {
@@ -142,7 +144,7 @@ export async function settlePublishedSpotlights(db: D1Database, now = Date.now()
 
     const result = await fetchFinalResult(fixture);
     if (!result) continue;
-    const predictions = await db.prepare(`SELECT id, home_score, away_score, first_scorer, goal_window, first_team
+    const predictions = await db.prepare(`SELECT id, participant_id, home_score, away_score, first_scorer, goal_window, first_team
       FROM predictions WHERE match_id = ?`).bind(fixture.matchId).all<Record<string, unknown>>();
     const scoredAt = Date.now();
     const statements = [db.prepare(`INSERT INTO match_results
@@ -174,8 +176,9 @@ export async function settlePublishedSpotlights(db: D1Database, now = Date.now()
           score.goalWindowPoints, score.firstTeamPoints, score.totalPoints, scoredAt));
     }
     await db.batch(statements);
+    badgesAwarded += await awardParticipantBadges(db, (predictions.results || []).map((prediction) => String(prediction.participant_id)), scoredAt);
     matchesSettled += 1;
     predictionsScored += predictions.results?.length || 0;
   }
-  return { playersSynced, matchesSettled, predictionsScored };
+  return { playersSynced, matchesSettled, predictionsScored, badgesAwarded };
 }
