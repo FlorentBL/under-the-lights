@@ -54,6 +54,22 @@ test("uses a visual Soccerverse player picker", async () => {
   assert.doesNotMatch(app, /<select value=\{prediction\.firstScorer\}/);
 });
 
+test("uses live season data instead of demo standings and histories", async () => {
+  const [app, seasonRoute, seasonData, schema] = await Promise.all([
+    readFile(new URL("../app/under-the-lights-app.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../app/api/season/route.ts", import.meta.url), "utf8"),
+    readFile(new URL("../lib/season-data.ts", import.meta.url), "utf8"),
+    readFile(new URL("../db/schema.ts", import.meta.url), "utf8"),
+  ]);
+
+  assert.match(app, /ScoreBreakdown/);
+  assert.match(app, /season\.leaderboard/);
+  assert.doesNotMatch(app, /Marta_V|NorthBank|Ehime FC/);
+  assert.match(seasonRoute, /loadSeason/);
+  assert.match(seasonData, /prediction_scores/);
+  assert.match(schema, /participantBadges/);
+});
+
 test("protects predictions with Better Auth", async () => {
   const [predictionRoute, authRoute, providersRoute, authConfig, schema] = await Promise.all([
     readFile(new URL("../app/api/predictions/route.ts", import.meta.url), "utf8"),

@@ -22,10 +22,11 @@ import {
   X,
 } from "@phosphor-icons/react";
 import Image from "next/image";
-import { FormEvent, useEffect, useRef, useState } from "react";
+import { FormEvent, useCallback, useEffect, useRef, useState } from "react";
 import { authClient } from "@/lib/auth-client";
 import { positionCategories, positionSummary, primaryPositionCategory, type PositionCategory } from "@/lib/player-positions";
-import { GOAL_WINDOWS, MAX_PREDICTION_POINTS, NO_GOAL, type GoalWindow } from "@/lib/scoring";
+import { GOAL_WINDOWS, MAX_PREDICTION_POINTS, NO_GOAL, type GoalWindow, type ScoreBreakdown } from "@/lib/scoring";
+import type { BadgeKey, SeasonPayload, SeasonViewer } from "@/lib/season";
 
 type View = "spotlight" | "leaderboard" | "achievements" | "profile";
 
@@ -36,6 +37,8 @@ type Prediction = {
   goalWindow: GoalWindow;
   firstTeam: string;
 };
+
+type PredictionScore = ScoreBreakdown & { scoredAt: number };
 
 type SpotlightPlayer = {
   id: number;
@@ -106,31 +109,16 @@ const fallbackSpotlight: Spotlight = {
   result: null,
 };
 
-const leaderboard = [
-  ["Marta_V", "ESP", 118, 7],
-  ["NorthBank", "ENG", 113, 5],
-  ["Kaito88", "JPN", 108, 6],
-  ["KrakowKing", "POL", 105, 4],
-  ["LesGones", "FRA", 99, 5],
-  ["Tactico", "ARG", 96, 3],
-  ["BolaNaRede", "BRA", 91, 4],
-  ["KopEnd", "ENG", 88, 2],
-] as const;
+const badgeIcons = {
+  bullseye: Target,
+  "perfect-timing": Crosshair,
+  "on-fire": Fire,
+  "globe-trotter": GlobeHemisphereWest,
+  "the-wall": ShieldCheck,
+  "against-the-odds": Sparkle,
+} satisfies Record<BadgeKey, typeof Target>;
 
-const badges = [
-  { icon: Target, name: "Bullseye", description: "Predict an exact score", progress: 1, target: 1 },
-  { icon: Crosshair, name: "Perfect Timing", description: "Find a scorer and the right time window", progress: 1, target: 1 },
-  { icon: Fire, name: "On Fire", description: "Predict five results in a row", progress: 3, target: 5 },
-  { icon: GlobeHemisphereWest, name: "Globe-trotter", description: "Play matches across five countries", progress: 4, target: 5 },
-  { icon: ShieldCheck, name: "The Wall", description: "Correctly predict a 0-0 draw", progress: 0, target: 1 },
-  { icon: Sparkle, name: "Against the Odds", description: "Back an outsider to win", progress: 1, target: 1 },
-] as const;
-
-const histories = [
-  { round: "Week 04", match: "Ehime FC 1-1 Oita Trinita", points: 7, badge: "Perfect Timing" },
-  { round: "Week 03", match: "Racing Santander 2-0 Elche", points: 10, badge: "Bullseye" },
-  { round: "Week 02", match: "Bari 1-2 Palermo", points: 3, badge: null },
-] as const;
+const emptySeason: SeasonPayload = { leaderboard: [], viewer: null };
 
 export function UnderTheLightsApp() {
   const { data: session, isPending: sessionPending } = authClient.useSession();
@@ -149,6 +137,9 @@ export function UnderTheLightsApp() {
   const [notice, setNotice] = useState("");
   const [spotlight, setSpotlight] = useState<Spotlight>(fallbackSpotlight);
   const [adminUserId, setAdminUserId] = useState("");
+  const [predictionScore, setPredictionScore] = useState<PredictionScore | null>(null);
+  const [season, setSeason] = useState<SeasonPayload>(emptySeason);
+  const [seasonLoading, setSeasonLoading] = useState(true);
 
   useEffect(() => {
     if (!session) return;
@@ -160,6 +151,22 @@ export function UnderTheLightsApp() {
   }, [session]);
 
   const isAdmin = Boolean(session && adminUserId === session.user.id);
+
+  const refreshSeason = useCallback(() => {
+    return fetch("/api/season", { cache: "no-store" })
+      .then(async (response) => {
+        if (!response.ok) throw new Error("Season data unavailable");
+        return response.json() as Promise<SeasonPayload>;
+      })
+      .then(setSeason)
+      .catch(() => setSeason(emptySeason))
+      .finally(() => setSeasonLoading(false));
+  }, []);
+
+  useEffect(() => {
+    if (sessionPending) return;
+    void refreshSeason();
+  }, [refreshSeason, session?.user.id, sessionPending]);
 
   useEffect(() => {
     fetch("/api/spotlight/current")
@@ -199,10 +206,11 @@ export function UnderTheLightsApp() {
       return () => controller.abort();
     }
     fetch(`/api/predictions?matchId=${spotlight.fixtureId}`, { cache: "no-store", signal: controller.signal })
-      .then(async (response) => await response.json() as { prediction?: Prediction | null })
+      .then(async (response) => await response.json() as { prediction?: (Prediction & { score?: PredictionScore | null }) | null })
       .then((payload) => {
         if (!payload.prediction) return;
         setPrediction(payload.prediction);
+        setPredictionScore(payload.prediction.score || null);
         setSubmitted(true);
       })
       .catch(() => undefined);
@@ -236,6 +244,7 @@ export function UnderTheLightsApp() {
       window.localStorage.setItem(`utl-prediction:${spotlight.fixtureId}`, JSON.stringify(prediction));
       setSubmitted(true);
       setNotice("Prediction locked. You can edit it until kick-off.");
+      await refreshSeason();
     } catch (error) {
       setNotice(error instanceof Error ? error.message : "Prediction could not be saved");
     } finally {
@@ -282,14 +291,16 @@ export function UnderTheLightsApp() {
             submitted={submitted}
             saving={saving}
             notice={notice}
+            score={predictionScore}
+            leaders={season.leaderboard}
             projectedPoints={MAX_PREDICTION_POINTS}
             onSubmit={submitPrediction}
             onLeaderboard={() => navigate("leaderboard")}
           />
         )}
-        {view === "leaderboard" && <LeaderboardView />}
-        {view === "achievements" && <AchievementsView />}
-        {view === "profile" && <ProfileView user={session?.user ?? null} onAchievements={() => navigate("achievements")} onSignIn={() => setAuthOpen(true)} />}
+        {view === "leaderboard" && <LeaderboardView leaders={season.leaderboard} loading={seasonLoading} />}
+        {view === "achievements" && <AchievementsView viewer={season.viewer} user={session?.user ?? null} loading={seasonLoading} onSignIn={() => setAuthOpen(true)} />}
+        {view === "profile" && <ProfileView user={session?.user ?? null} viewer={season.viewer} loading={seasonLoading} onAchievements={() => navigate("achievements")} onSignIn={() => setAuthOpen(true)} />}
       </main>
 
       {authOpen && <AuthDialog onClose={() => setAuthOpen(false)} />}
@@ -378,13 +389,15 @@ function NavButton({ active, onClick, children }: { active: boolean; onClick: ()
   return <button className={active ? "nav-button active" : "nav-button"} onClick={onClick}>{children}</button>;
 }
 
-function SpotlightView({ spotlight, prediction, setPrediction, submitted, saving, notice, projectedPoints, onSubmit, onLeaderboard }: {
+function SpotlightView({ spotlight, prediction, setPrediction, submitted, saving, notice, score, leaders, projectedPoints, onSubmit, onLeaderboard }: {
   spotlight: Spotlight;
   prediction: Prediction;
   setPrediction: (prediction: Prediction) => void;
   submitted: boolean;
   saving: boolean;
   notice: string;
+  score: PredictionScore | null;
+  leaders: SeasonPayload["leaderboard"];
   projectedPoints: number;
   onSubmit: (event: FormEvent) => void;
   onLeaderboard: () => void;
@@ -395,7 +408,10 @@ function SpotlightView({ spotlight, prediction, setPrediction, submitted, saving
   const selectedScorer = spotlight.players.find((player) => String(player.id) === prediction.firstScorer)?.name
     || (prediction.firstScorer === NO_GOAL ? "No first goalscorer" : "Select a player");
   const predictionsClosed = Boolean(spotlight.result) || clock >= spotlight.kickoff * 1000;
+  const awaitingResult = predictionsClosed && !spotlight.result;
   const spotlightReason = spotlight.reasons[0] || "The match of the week";
+  const resultScorer = spotlight.players.find((player) => String(player.id) === spotlight.result?.firstScorer)?.name
+    || (spotlight.result?.firstScorer === NO_GOAL ? "No goalscorer" : "Pending confirmation");
 
   useEffect(() => {
     const initialTick = window.setTimeout(() => setClock(Date.now()), 0);
@@ -493,11 +509,11 @@ function SpotlightView({ spotlight, prediction, setPrediction, submitted, saving
           </div>
 
           <aside className="prediction-summary">
-            <div className="summary-top"><Clock size={20} /><span>{predictionsClosed ? "Predictions closed" : "Predictions close"}</span><strong>{kickoff}</strong></div>
-            <div className="score-preview"><span>{initials(spotlight.homeName)}</span><strong>{prediction.homeScore} - {prediction.awayScore}</strong><span>{initials(spotlight.awayName)}</span></div>
-            <div className="scoring-key" aria-label="Scoring rules"><span>Result <b>3</b></span><span>Exact <b>+5</b></span><span>Scorer <b>4</b></span><span>Window <b>2</b></span><span>First team <b>1</b></span></div>
-            <dl><div><dt>First scorer</dt><dd>{selectedScorer}</dd></div><div><dt>Goal window</dt><dd>{prediction.goalWindow === NO_GOAL ? "No goal" : `${prediction.goalWindow} min`}</dd></div><div><dt>Maximum haul</dt><dd>{projectedPoints} pts</dd></div></dl>
-            <button className="submit-prediction" type="submit" disabled={saving || predictionsClosed || !spotlight.players.length || (prediction.homeScore + prediction.awayScore > 0 && (!prediction.firstScorer || prediction.firstScorer === NO_GOAL))}>{saving ? "Locking prediction..." : predictionsClosed ? "Predictions closed" : submitted ? "Update prediction" : "Lock prediction"}{submitted ? <Check size={19} weight="bold" /> : <ArrowRight size={19} weight="bold" />}</button>
+            <div className="summary-top"><Clock size={20} /><span>{spotlight.result ? "Final result" : awaitingResult ? "Result processing" : "Predictions close"}</span><strong>{spotlight.result ? "Settled" : kickoff}</strong></div>
+            <div className={spotlight.result ? "score-preview final" : "score-preview"}><span>{initials(spotlight.homeName)}</span><strong>{spotlight.result ? `${spotlight.result.homeScore} - ${spotlight.result.awayScore}` : `${prediction.homeScore} - ${prediction.awayScore}`}</strong><span>{initials(spotlight.awayName)}</span></div>
+            {score ? <ScoreBreakdown score={score} /> : <div className="scoring-key" aria-label="Scoring rules"><span>Result <b>3</b></span><span>Exact <b>+5</b></span><span>Scorer <b>4</b></span><span>Window <b>2</b></span><span>First team <b>1</b></span></div>}
+            <dl>{spotlight.result ? <><div><dt>First scorer</dt><dd>{resultScorer}</dd></div><div><dt>First goal</dt><dd>{spotlight.result.firstGoalMinute ? `${spotlight.result.firstGoalMinute}' · ${spotlight.result.goalWindow}` : "No goal"}</dd></div><div><dt>Your total</dt><dd>{score ? `${score.totalPoints} pts` : submitted ? "Processing" : "No prediction"}</dd></div></> : <><div><dt>First scorer</dt><dd>{selectedScorer}</dd></div><div><dt>Goal window</dt><dd>{prediction.goalWindow === NO_GOAL ? "No goal" : `${prediction.goalWindow} min`}</dd></div><div><dt>Maximum haul</dt><dd>{projectedPoints} pts</dd></div></>}</dl>
+            {spotlight.result && score ? <div className="points-awarded"><Trophy size={20} weight="fill" /><span>Points awarded</span><strong>+{score.totalPoints}</strong></div> : <button className="submit-prediction" type="submit" disabled={saving || predictionsClosed || !spotlight.players.length || (prediction.homeScore + prediction.awayScore > 0 && (!prediction.firstScorer || prediction.firstScorer === NO_GOAL))}>{saving ? "Locking prediction..." : awaitingResult ? "Awaiting final result" : predictionsClosed ? "Predictions closed" : submitted ? "Update prediction" : "Lock prediction"}{submitted ? <Check size={19} weight="bold" /> : <ArrowRight size={19} weight="bold" />}</button>}
             {notice && <p className="form-notice" role="status">{notice}</p>}
           </aside>
         </form>
@@ -505,10 +521,21 @@ function SpotlightView({ spotlight, prediction, setPrediction, submitted, saving
 
       <section className="week-leaders">
         <div className="leaders-copy"><span>Season table</span><h2>The season never stops.</h2><p>Weekly precision builds a reputation across every league.</p><button className="text-link" onClick={onLeaderboard}>View full leaderboard <ArrowRight size={18} /></button></div>
-        <div className="leader-podium">{leaderboard.slice(0, 3).map(([name, country, points], index) => <div key={name} className="mini-rank"><span>{String(index + 1).padStart(2, "0")}</span><div><strong>{name}</strong><small>{country}</small></div><b>{points}<small> pts</small></b></div>)}</div>
+        <div className="leader-podium">{leaders.length ? leaders.slice(0, 3).map((entry) => <div key={`${entry.rank}:${entry.displayName}`} className="mini-rank"><span>{String(entry.rank).padStart(2, "0")}</span><div><strong>{entry.displayName}</strong><small>{entry.played} played · {entry.exactScores} exact</small></div><b>{entry.points}<small> pts</small></b></div>) : <SeasonEmpty compact title="The table is waiting" description="The first settled spotlight will reveal the opening standings." />}</div>
       </section>
     </>
   );
+}
+
+function ScoreBreakdown({ score }: { score: PredictionScore }) {
+  const items = [
+    ["Result", score.outcomePoints],
+    ["Exact", score.exactScorePoints],
+    ["Scorer", score.firstScorerPoints],
+    ["Window", score.goalWindowPoints],
+    ["First team", score.firstTeamPoints],
+  ] as const;
+  return <div className="scoring-key awarded" aria-label="Points breakdown">{items.map(([label, points]) => <span className={points ? "hit" : "miss"} key={label}>{label} <b>+{points}</b></span>)}</div>;
 }
 
 function TeamMark({ initials: mark, name, position, competition, home = false }: { initials: string; name: string; position: number | null; competition: string; home?: boolean }) {
@@ -652,35 +679,58 @@ function PositionBadge({ position }: { position: number | null }) {
   return <b className={`position-code ${category}`}>{positionSummary(position)}</b>;
 }
 
-function LeaderboardView() {
+function SeasonEmpty({ title, description, compact = false }: { title: string; description: string; compact?: boolean }) {
+  return <div className={compact ? "season-empty compact" : "season-empty"}><Trophy size={compact ? 24 : 36} weight="duotone" /><strong>{title}</strong><span>{description}</span></div>;
+}
+
+function LeaderboardView({ leaders, loading }: { leaders: SeasonPayload["leaderboard"]; loading: boolean }) {
   return (
     <section className="inner-page">
       <div className="page-intro"><div><Trophy size={25} weight="fill" /><span>Season 1 standings</span></div><h1>Every call<br />counts.</h1><p>Accuracy creates distance. Consistency keeps you under the lights.</p></div>
       <div className="leaderboard-layout">
-        <div className="leaderboard-table"><div className="table-header"><span>Rank</span><span>Player</span><span>Exact scores</span><span>Points</span></div>{leaderboard.map(([name, country, points, exact], index) => <div className={name === "LesGones" ? "table-row current" : "table-row"} key={name}><span className="rank-number">{String(index + 1).padStart(2, "0")}</span><span className="player-name"><i>{name.slice(0, 2).toUpperCase()}</i><b>{name}</b><small>{country}</small></span><span>{exact}</span><strong>{points}</strong></div>)}</div>
-        <aside className="season-card"><Medal size={34} weight="fill" /><h2>Season rewards</h2><p>The most accurate predictors share the final prize pool. Explorers and badge hunters earn their own collections.</p><div><span>Next reset</span><strong>End of Season 1</strong></div></aside>
+        <div className="leaderboard-table"><div className="table-header"><span>Rank</span><span>Player</span><span>Exact scores</span><span>Points</span></div>{leaders.map((entry) => <div className={entry.isViewer ? "table-row current" : "table-row"} key={`${entry.rank}:${entry.displayName}`}><span className="rank-number">{String(entry.rank).padStart(2, "0")}</span><span className="player-name"><i>{initials(entry.displayName)}</i><b>{entry.displayName}</b><small>{entry.played} played · {entry.badges} badges</small></span><span>{entry.exactScores}</span><strong>{entry.points}</strong></div>)}{!leaders.length && <SeasonEmpty title={loading ? "Loading the standings" : "No points awarded yet"} description={loading ? "Collecting the current season." : "The leaderboard starts as soon as the first spotlight is settled."} />}</div>
+        <aside className="season-card"><Medal size={34} weight="fill" /><h2>Season honours</h2><p>Accuracy decides the table. Exploration, timing and bold calls build a separate badge collection.</p><div><span>Current campaign</span><strong>Season 1</strong></div></aside>
       </div>
     </section>
   );
 }
 
-function AchievementsView() {
+function AchievementsView({ viewer, user, loading, onSignIn }: { viewer: SeasonViewer | null; user: { name: string } | null; loading: boolean; onSignIn: () => void }) {
+  if (!user) return <section className="inner-page signed-out-profile"><Medal size={72} weight="duotone" /><h1>Your cabinet<br />starts here.</h1><p>Sign in to track progress and keep every badge you unlock.</p><button onClick={onSignIn}><SignInIcon size={18} weight="bold" /> Sign in to see achievements</button></section>;
+  if (loading || !viewer) return <section className="inner-page"><SeasonEmpty title="Loading your achievements" description="Calculating progress from your prediction history." /></section>;
+  const unlocked = viewer.badges.filter((badge) => badge.unlocked).length;
+  const completion = Math.round(unlocked / viewer.badges.length * 100);
   return (
     <section className="inner-page">
       <div className="page-intro"><div><Medal size={25} weight="fill" /><span>Your trophy cabinet</span></div><h1>Build your<br />legend.</h1><p>Collect the moments that turn a good prediction into a story.</p></div>
-      <div className="badge-summary"><div><strong>3</strong><span>Unlocked</span></div><div><strong>6</strong><span>In progress</span></div><div><strong>50%</strong><span>Collection complete</span></div></div>
-      <div className="badge-grid">{badges.map(({ icon: Icon, name, description, progress, target }) => { const unlocked = progress >= target; return <article className={unlocked ? "badge-card unlocked" : "badge-card"} key={name}><div className="badge-icon">{unlocked ? <Icon size={37} weight="fill" /> : <Lock size={31} />}</div><div><span>{unlocked ? "Unlocked" : `${progress} of ${target}`}</span><h2>{name}</h2><p>{description}</p></div><small>{unlocked ? <><Check size={16} weight="bold" /> Earned</> : `${Math.round((progress / target) * 100)}% complete`}</small></article>; })}</div>
+      <div className="badge-summary"><div><strong>{unlocked}</strong><span>Unlocked</span></div><div><strong>{viewer.badges.length - unlocked}</strong><span>In progress</span></div><div><strong>{completion}%</strong><span>Collection complete</span></div></div>
+      <div className="badge-grid">{viewer.badges.map((badge) => { const Icon = badgeIcons[badge.key]; return <article className={badge.unlocked ? "badge-card unlocked" : "badge-card"} key={badge.key}><div className="badge-icon">{badge.unlocked ? <Icon size={37} weight="fill" /> : <Lock size={31} />}</div><div><span>{badge.unlocked ? "Unlocked" : `${badge.progress} of ${badge.target}`}</span><h2>{badge.name}</h2><p>{badge.description}</p></div><small>{badge.unlocked ? <><Check size={16} weight="bold" /> {badge.earnedAt ? `Earned ${formatShortDate(badge.earnedAt)}` : "Earned"}</> : `${Math.round((badge.progress / badge.target) * 100)}% complete`}</small></article>; })}</div>
     </section>
   );
 }
 
-function ProfileView({ user, onAchievements, onSignIn }: { user: { name: string; email: string; image?: string | null } | null; onAchievements: () => void; onSignIn: () => void }) {
+function formatShortDate(timestamp: number) {
+  return new Intl.DateTimeFormat("en-GB", { day: "2-digit", month: "short", year: "numeric" }).format(new Date(timestamp));
+}
+
+function historyBreakdown(score: NonNullable<SeasonViewer["history"][number]["score"]>) {
+  return [
+    ["Result", score.outcomePoints],
+    ["Exact", score.exactScorePoints],
+    ["Scorer", score.firstScorerPoints],
+    ["Window", score.goalWindowPoints],
+    ["First team", score.firstTeamPoints],
+  ] as const;
+}
+
+function ProfileView({ user, viewer, loading, onAchievements, onSignIn }: { user: { name: string; email: string; image?: string | null } | null; viewer: SeasonViewer | null; loading: boolean; onAchievements: () => void; onSignIn: () => void }) {
   if (!user) return <section className="inner-page signed-out-profile"><UserCircle size={72} weight="duotone" /><h1>Your season<br />starts here.</h1><p>Sign in to keep every prediction, point and badge together.</p><button onClick={onSignIn}><SignInIcon size={18} weight="bold" /> Sign in or create an account</button></section>;
+  const stats = viewer?.stats || { points: 0, exactScores: 0, accuracy: 0, countries: 0, predictions: 0 };
   return (
     <section className="inner-page">
-      <div className="profile-hero"><div className="profile-avatar"><UserCircle size={68} weight="duotone" /></div><div><span>Season 1 competitor</span><h1>{user.name}</h1><p>{user.email}</p></div><div className="profile-actions"><button onClick={onAchievements}>View achievements <ArrowRight size={18} /></button><button className="sign-out-button" onClick={() => authClient.signOut()}><SignOut size={18} /> Sign out</button></div></div>
-      <div className="profile-stats"><div><strong>74</strong><span>Season points</span></div><div><strong>2</strong><span>Exact scores</span></div><div><strong>68%</strong><span>Result accuracy</span></div><div><strong>4</strong><span>Countries explored</span></div></div>
-      <div className="history-panel"><div className="history-heading"><h2>Prediction history</h2><span>Last 3 matches</span></div>{histories.map((item) => <article key={item.round}><span>{item.round}</span><strong>{item.match}</strong><small>{item.badge || "Points earned"}</small><b>+{item.points}</b></article>)}</div>
+      <div className="profile-hero"><div className="profile-avatar"><UserCircle size={68} weight="duotone" /></div><div><span>{viewer?.rank ? `Season rank #${viewer.rank}` : "Season 1 competitor"}</span><h1>{user.name}</h1><p>{user.email}</p></div><div className="profile-actions"><button onClick={onAchievements}>View achievements <ArrowRight size={18} /></button><button className="sign-out-button" onClick={() => authClient.signOut()}><SignOut size={18} /> Sign out</button></div></div>
+      <div className="profile-stats"><div><strong>{stats.points}</strong><span>Season points</span></div><div><strong>{stats.exactScores}</strong><span>Exact scores</span></div><div><strong>{stats.accuracy}%</strong><span>Result accuracy</span></div><div><strong>{stats.countries}</strong><span>Countries explored</span></div></div>
+      <div className="history-panel"><div className="history-heading"><h2>Prediction history</h2><span>{loading ? "Loading" : `${stats.predictions} prediction${stats.predictions === 1 ? "" : "s"}`}</span></div>{viewer?.history.map((item) => <article key={item.matchId}><span>{formatShortDate(item.kickoff * 1000)}</span><div className="history-match"><strong>{item.homeName} {item.result ? `${item.result.homeScore}-${item.result.awayScore}` : "vs"} {item.awayName}</strong><small>Your pick: {item.prediction.homeScore}-{item.prediction.awayScore} · {item.competitionName}</small>{item.score && <div className="history-breakdown">{historyBreakdown(item.score).map(([label, points]) => <i className={points ? "hit" : ""} key={label}>{label} +{points}</i>)}</div>}</div><small>{item.score ? "Settled" : item.result ? "Scoring" : "Pending result"}</small><b>{item.score ? `+${item.score.totalPoints}` : "-"}</b></article>)}{!loading && !viewer?.history.length && <SeasonEmpty title="No predictions yet" description="Your first locked spotlight will appear here immediately." />}</div>
     </section>
   );
 }
