@@ -101,15 +101,27 @@ test("protects predictions with Better Auth", async () => {
 });
 
 test("exposes the participant registry only to administrators", async () => {
-  const [usersRoute, adminPanel] = await Promise.all([
+  const [usersRoute, adminPanel, adminAuth, schema, migration] = await Promise.all([
     readFile(new URL("../app/api/admin/users/route.ts", import.meta.url), "utf8"),
     readFile(new URL("../app/admin/admin-panel.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../lib/admin-auth.ts", import.meta.url), "utf8"),
+    readFile(new URL("../db/schema.ts", import.meta.url), "utf8"),
+    readFile(new URL("../drizzle/0005_admin_roles.sql", import.meta.url), "utf8"),
   ]);
 
   assert.match(usersRoute, /requireAdmin/);
   assert.match(usersRoute, /COUNT\(DISTINCT p\.id\)/);
   assert.match(usersRoute, /MAX\(s\.updated_at\)/);
+  assert.match(usersRoute, /export async function PATCH/);
+  assert.match(usersRoute, /Configured administrators cannot be demoted here/);
+  assert.match(usersRoute, /You cannot remove your own administrator access/);
   assert.doesNotMatch(usersRoute, /access_token|refresh_token|password/);
   assert.match(adminPanel, /Participant registry/);
   assert.match(adminPanel, /Search name, email or provider/);
+  assert.match(adminPanel, /Make admin/);
+  assert.match(adminPanel, /Remove admin/);
+  assert.match(adminAuth, /getAdminRole/);
+  assert.match(adminAuth, /admin_users/);
+  assert.match(schema, /sqliteTable\("admin_users"/);
+  assert.match(migration, /CREATE TABLE `admin_users`/);
 });

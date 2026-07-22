@@ -49,6 +49,12 @@ export const verification = sqliteTable("verification", {
   updatedAt: integer("updated_at", { mode: "timestamp" }),
 }, (table) => [index("verification_identifier_idx").on(table.identifier)]);
 
+export const adminUsers = sqliteTable("admin_users", {
+  userId: text("user_id").primaryKey().references(() => user.id, { onDelete: "cascade" }),
+  grantedBy: text("granted_by").notNull(),
+  createdAt: integer("created_at").notNull(),
+}, (table) => [index("admin_users_created_at_idx").on(table.createdAt)]);
+
 export const participants = sqliteTable("participants", {
   id: text("id").primaryKey(),
   displayName: text("display_name").notNull(),

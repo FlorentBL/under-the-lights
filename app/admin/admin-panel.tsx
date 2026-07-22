@@ -89,6 +89,8 @@ type AdminUser = {
   lastActiveAt: number;
   predictionCount: number;
   role: "admin" | "player";
+  roleSource: "configured" | "delegated" | null;
+  isCurrentUser: boolean;
 };
 
 type UsersPayload = {
@@ -345,6 +347,10 @@ function UsersView() {
   const [payload, setPayload] = useState<UsersPayload | null>(null);
   const [query, setQuery] = useState("");
   const [error, setError] = useState("");
+  const [actionError, setActionError] = useState("");
+  const [notice, setNotice] = useState("");
+  const [updatingUserId, setUpdatingUserId] = useState<string | null>(null);
+  const [pendingDemotionId, setPendingDemotionId] = useState<string | null>(null);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -369,6 +375,33 @@ function UsersView() {
     );
   }, [payload, query]);
 
+  async function updateRole(user: AdminUser, role: "admin" | "player") {
+    setUpdatingUserId(user.id);
+    setActionError("");
+    setNotice("");
+    try {
+      const response = await fetch("/api/admin/users", {
+        method: "PATCH",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ userId: user.id, role }),
+      });
+      const result = await response.json() as { error?: string; roleSource?: AdminUser["roleSource"] };
+      if (!response.ok) throw new Error(result.error || "Unable to update access");
+      setPayload((current) => current ? {
+        ...current,
+        users: current.users.map((item) => item.id === user.id
+          ? { ...item, role, roleSource: result.roleSource ?? null }
+          : item),
+      } : current);
+      setNotice(role === "admin" ? `${user.name} is now an administrator.` : `${user.name} is now a player.`);
+      setPendingDemotionId(null);
+    } catch (cause) {
+      setActionError(cause instanceof Error ? cause.message : "Unable to update access");
+    } finally {
+      setUpdatingUserId(null);
+    }
+  }
+
   if (error) return <section className="admin-empty error-state"><WarningCircle size={42} /><h2>Registry unavailable.</h2><p>{error}</p></section>;
   if (!payload) return <UsersLoading />;
 
@@ -391,6 +424,9 @@ function UsersView() {
           </label>
         </header>
 
+        {notice ? <p className="users-role-notice success" role="status">{notice}</p> : null}
+        {actionError ? <p className="users-role-notice error" role="alert">{actionError}</p> : null}
+
         {visibleUsers.length ? (
           <div className="users-table-wrap">
             <table className="users-table">
@@ -403,7 +439,27 @@ function UsersView() {
                     <td data-label="Joined"><time dateTime={new Date(user.createdAt).toISOString()}>{memberDate(user.createdAt)}</time></td>
                     <td data-label="Last active"><time dateTime={new Date(user.lastActiveAt).toISOString()}>{relativeActivity(user.lastActiveAt)}</time></td>
                     <td data-label="Predictions"><strong className="prediction-count">{user.predictionCount}</strong></td>
-                    <td data-label="Access"><span className={`access-level ${user.role}`}>{user.role === "admin" ? "Admin" : "Player"}</span></td>
+                    <td data-label="Access">
+                      <div className="access-control">
+                        <span className={`access-level ${user.role}`}>{user.roleSource === "configured" ? "Owner admin" : user.role === "admin" ? "Admin" : "Player"}</span>
+                        {user.roleSource === "configured" ? <small>Cloudflare managed</small> : user.role === "player" ? (
+                          <button type="button" onClick={() => updateRole(user, "admin")} disabled={updatingUserId === user.id}>
+                            {updatingUserId === user.id ? "Updating…" : "Make admin"}
+                          </button>
+                        ) : pendingDemotionId === user.id ? (
+                          <span className="access-confirm">
+                            <button type="button" className="danger" onClick={() => updateRole(user, "player")} disabled={updatingUserId === user.id}>
+                              {updatingUserId === user.id ? "Updating…" : "Confirm removal"}
+                            </button>
+                            <button type="button" className="quiet" onClick={() => setPendingDemotionId(null)}>Cancel</button>
+                          </span>
+                        ) : (
+                          <button type="button" className="danger" onClick={() => setPendingDemotionId(user.id)} disabled={user.isCurrentUser || updatingUserId === user.id} title={user.isCurrentUser ? "You cannot remove your own access" : undefined}>
+                            {updatingUserId === user.id ? "Updating…" : user.isCurrentUser ? "Current account" : "Remove admin"}
+                          </button>
+                        )}
+                      </div>
+                    </td>
                   </tr>
                 ))}
               </tbody>
