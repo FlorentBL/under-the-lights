@@ -21,8 +21,9 @@ import {
   X,
 } from "@phosphor-icons/react";
 import Image from "next/image";
-import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
+import { FormEvent, useEffect, useRef, useState } from "react";
 import { authClient } from "@/lib/auth-client";
+import { GOAL_WINDOWS, MAX_PREDICTION_POINTS, NO_GOAL, type GoalWindow } from "@/lib/scoring";
 
 type View = "spotlight" | "leaderboard" | "achievements" | "profile";
 
@@ -30,13 +31,15 @@ type Prediction = {
   homeScore: number;
   awayScore: number;
   firstScorer: string;
-  goalWindow: string;
+  goalWindow: GoalWindow;
   firstTeam: string;
 };
 
 type Spotlight = {
   fixtureId: number;
   kickoff: number;
+  homeClubId: number;
+  awayClubId: number;
   countryCode: string;
   competitionName: string;
   homeName: string;
@@ -54,11 +57,23 @@ type Spotlight = {
   title: string;
   summary: string;
   reasons: string[];
+  players: { id: number; clubId: number; name: string; position: number | null; rating: number | null }[];
+  result: null | {
+    homeScore: number;
+    awayScore: number;
+    firstScorer: string;
+    firstGoalMinute: number | null;
+    goalWindow: GoalWindow;
+    firstTeam: string;
+    settledAt: number;
+  };
 };
 
 const fallbackSpotlight: Spotlight = {
   fixtureId: 0,
   kickoff: 1785004200,
+  homeClubId: 0,
+  awayClubId: 0,
   countryCode: "POL",
   competitionName: "I Liga",
   homeName: "Wisła Kraków",
@@ -76,16 +91,9 @@ const fallbackSpotlight: Spotlight = {
   title: "Two points apart. Four games left.",
   summary: "One night can redraw the race for promotion.",
   reasons: ["Promotion race"],
+  players: [],
+  result: null,
 };
-
-const scorers = [
-  "Ángel Rodado",
-  "Jesús Alfaro",
-  "Szymon Sobczak",
-  "Karol Czubak",
-  "Olaf Kobacki",
-  "No first goalscorer",
-];
 
 const leaderboard = [
   ["Marta_V", "ESP", 118, 7],
@@ -121,9 +129,9 @@ export function UnderTheLightsApp() {
   const [prediction, setPrediction] = useState<Prediction>({
     homeScore: 2,
     awayScore: 1,
-    firstScorer: "Ángel Rodado",
+    firstScorer: "",
     goalWindow: "16-30",
-    firstTeam: "Wisła Kraków",
+    firstTeam: "",
   });
   const [submitted, setSubmitted] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -147,34 +155,48 @@ export function UnderTheLightsApp() {
       .then(async (response) => await response.json() as { spotlight?: Spotlight | null })
       .then((payload) => {
         if (!payload.spotlight) return;
-        setSpotlight(payload.spotlight);
-        setPrediction((current) => ({
-          ...current,
-          firstTeam: current.firstTeam === fallbackSpotlight.homeName ? payload.spotlight!.homeName : current.firstTeam,
-          firstScorer: current.firstScorer === scorers[0] ? `${payload.spotlight!.homeName} first scorer` : current.firstScorer,
-        }));
+        const next = payload.spotlight;
+        setSpotlight(next);
+        setPrediction({
+          homeScore: 2,
+          awayScore: 1,
+          firstScorer: next.players[0] ? String(next.players[0].id) : "",
+          goalWindow: "16-30",
+          firstTeam: String(next.homeClubId),
+        });
       })
       .catch(() => undefined);
   }, []);
 
   useEffect(() => {
-    const timer = window.setTimeout(() => {
-      const saved = window.localStorage.getItem("utl-current-prediction");
+    if (!spotlight.fixtureId) return;
+    const controller = new AbortController();
+    const localKey = `utl-prediction:${spotlight.fixtureId}`;
+    if (!session) {
+      const saved = window.localStorage.getItem(localKey);
       if (saved) {
-        setPrediction(JSON.parse(saved));
-        setSubmitted(true);
+        try {
+          const savedPrediction = JSON.parse(saved) as Prediction;
+          queueMicrotask(() => {
+            setPrediction(savedPrediction);
+            setSubmitted(true);
+          });
+        } catch {
+          window.localStorage.removeItem(localKey);
+        }
       }
-    }, 0);
-    return () => window.clearTimeout(timer);
-  }, []);
-
-  const projectedPoints = useMemo(() => {
-    let total = 3;
-    if (prediction.homeScore === 2 && prediction.awayScore === 1) total += 5;
-    if (prediction.firstScorer) total += 4;
-    if (prediction.goalWindow) total += 2;
-    return total;
-  }, [prediction]);
+      return () => controller.abort();
+    }
+    fetch(`/api/predictions?matchId=${spotlight.fixtureId}`, { cache: "no-store", signal: controller.signal })
+      .then(async (response) => await response.json() as { prediction?: Prediction | null })
+      .then((payload) => {
+        if (!payload.prediction) return;
+        setPrediction(payload.prediction);
+        setSubmitted(true);
+      })
+      .catch(() => undefined);
+    return () => controller.abort();
+  }, [session, spotlight.fixtureId]);
 
   const navigate = (next: View) => {
     setView(next);
@@ -198,8 +220,9 @@ export function UnderTheLightsApp() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ matchId: spotlight.fixtureId ? String(spotlight.fixtureId) : "preview-spotlight", ...prediction }),
       });
-      if (!response.ok) throw new Error("Prediction could not be saved");
-      window.localStorage.setItem("utl-current-prediction", JSON.stringify(prediction));
+      const payload = await response.json() as { error?: string };
+      if (!response.ok) throw new Error(payload.error || "Prediction could not be saved");
+      window.localStorage.setItem(`utl-prediction:${spotlight.fixtureId}`, JSON.stringify(prediction));
       setSubmitted(true);
       setNotice("Prediction locked. You can edit it until kick-off.");
     } catch (error) {
@@ -248,7 +271,7 @@ export function UnderTheLightsApp() {
             submitted={submitted}
             saving={saving}
             notice={notice}
-            projectedPoints={projectedPoints}
+            projectedPoints={MAX_PREDICTION_POINTS}
             onSubmit={submitPrediction}
             onLeaderboard={() => navigate("leaderboard")}
           />
@@ -356,11 +379,37 @@ function SpotlightView({ spotlight, prediction, setPrediction, submitted, saving
   onLeaderboard: () => void;
 }) {
   const heroRef = useRef<HTMLElement>(null);
+  const [clock, setClock] = useState(0);
   const kickoff = new Intl.DateTimeFormat("en-GB", { weekday: "long", hour: "2-digit", minute: "2-digit", timeZone: "Europe/Paris", timeZoneName: "short" }).format(new Date(spotlight.kickoff * 1000));
-  const dynamicScorers = spotlight.fixtureId
-    ? [`${spotlight.homeName} first scorer`, `${spotlight.awayName} first scorer`, "No first goalscorer"]
-    : scorers;
+  const homePlayers = spotlight.players.filter((player) => player.clubId === spotlight.homeClubId);
+  const awayPlayers = spotlight.players.filter((player) => player.clubId === spotlight.awayClubId);
+  const selectedScorer = spotlight.players.find((player) => String(player.id) === prediction.firstScorer)?.name
+    || (prediction.firstScorer === NO_GOAL ? "No first goalscorer" : "Select a player");
+  const predictionsClosed = Boolean(spotlight.result) || clock >= spotlight.kickoff * 1000;
   const spotlightReason = spotlight.reasons[0] || "The match of the week";
+
+  useEffect(() => {
+    const initialTick = window.setTimeout(() => setClock(Date.now()), 0);
+    const timer = window.setInterval(() => setClock(Date.now()), 30_000);
+    return () => {
+      window.clearTimeout(initialTick);
+      window.clearInterval(timer);
+    };
+  }, []);
+
+  function updateScore(field: "homeScore" | "awayScore", value: number) {
+    const next = { ...prediction, [field]: value };
+    if (next.homeScore + next.awayScore === 0) {
+      next.firstScorer = NO_GOAL;
+      next.goalWindow = NO_GOAL;
+      next.firstTeam = NO_GOAL;
+    } else {
+      if (!next.firstScorer || next.firstScorer === NO_GOAL) next.firstScorer = spotlight.players[0] ? String(spotlight.players[0].id) : "";
+      if (next.goalWindow === NO_GOAL) next.goalWindow = "1-15";
+      if (next.firstTeam === NO_GOAL) next.firstTeam = String(spotlight.homeClubId);
+    }
+    setPrediction(next);
+  }
 
   function moveHeroLight(event: React.PointerEvent<HTMLElement>) {
     if (event.pointerType !== "mouse" || !heroRef.current) return;
@@ -410,21 +459,31 @@ function SpotlightView({ spotlight, prediction, setPrediction, submitted, saving
             <fieldset className="score-fieldset">
               <legend>Full-time score</legend>
               <div className="score-picker">
-                <ScoreControl label={spotlight.homeName} value={prediction.homeScore} onChange={(homeScore) => setPrediction({ ...prediction, homeScore })} />
+                <ScoreControl label={spotlight.homeName} value={prediction.homeScore} disabled={predictionsClosed} onChange={(homeScore) => updateScore("homeScore", homeScore)} />
                 <span className="score-separator">:</span>
-                <ScoreControl label={spotlight.awayName} value={prediction.awayScore} onChange={(awayScore) => setPrediction({ ...prediction, awayScore })} />
+                <ScoreControl label={spotlight.awayName} value={prediction.awayScore} disabled={predictionsClosed} onChange={(awayScore) => updateScore("awayScore", awayScore)} />
               </div>
             </fieldset>
-            <label className="field-block"><span>First goalscorer</span><select value={dynamicScorers.includes(prediction.firstScorer) ? prediction.firstScorer : dynamicScorers[0]} onChange={(event) => setPrediction({ ...prediction, firstScorer: event.target.value })}>{dynamicScorers.map((player) => <option key={player}>{player}</option>)}</select></label>
-            <fieldset className="field-block"><legend>First goal window</legend><div className="choice-row">{["1-15", "16-30", "31-45+", "46-60", "61-75", "76-90+"].map((window) => <button type="button" key={window} className={prediction.goalWindow === window ? "choice active" : "choice"} onClick={() => setPrediction({ ...prediction, goalWindow: window })}>{window}</button>)}</div></fieldset>
-            <fieldset className="field-block"><legend>Who scores first?</legend><div className="choice-row three">{[spotlight.homeName, spotlight.awayName, "No goal"].map((team) => <button type="button" key={team} className={prediction.firstTeam === team ? "choice active" : "choice"} onClick={() => setPrediction({ ...prediction, firstTeam: team })}>{team}</button>)}</div></fieldset>
+            <label className="field-block"><span>First goalscorer</span><select value={prediction.firstScorer} disabled={predictionsClosed || !spotlight.players.length} onChange={(event) => setPrediction({ ...prediction, firstScorer: event.target.value })}>
+              {!spotlight.players.length && <option value="">Squads are loading</option>}
+              <optgroup label={spotlight.homeName}>{homePlayers.map((player) => <option key={player.id} value={String(player.id)}>{player.name}</option>)}</optgroup>
+              <optgroup label={spotlight.awayName}>{awayPlayers.map((player) => <option key={player.id} value={String(player.id)}>{player.name}</option>)}</optgroup>
+              <option value={NO_GOAL}>No first goalscorer</option>
+            </select></label>
+            <fieldset className="field-block"><legend>First goal window</legend><div className="choice-row">{GOAL_WINDOWS.map((window) => <button type="button" key={window} disabled={predictionsClosed} className={prediction.goalWindow === window ? "choice active" : "choice"} onClick={() => setPrediction({ ...prediction, goalWindow: window })}>{window === NO_GOAL ? "No goal" : window}</button>)}</div></fieldset>
+            <fieldset className="field-block"><legend>Who scores first?</legend><div className="choice-row three">{[
+              { value: String(spotlight.homeClubId), label: spotlight.homeName },
+              { value: String(spotlight.awayClubId), label: spotlight.awayName },
+              { value: NO_GOAL, label: "No goal" },
+            ].map((team) => <button type="button" key={team.value} disabled={predictionsClosed} className={prediction.firstTeam === team.value ? "choice active" : "choice"} onClick={() => setPrediction({ ...prediction, firstTeam: team.value })}>{team.label}</button>)}</div></fieldset>
           </div>
 
           <aside className="prediction-summary">
-            <div className="summary-top"><Clock size={20} /><span>Predictions close</span><strong>{kickoff}</strong></div>
+            <div className="summary-top"><Clock size={20} /><span>{predictionsClosed ? "Predictions closed" : "Predictions close"}</span><strong>{kickoff}</strong></div>
             <div className="score-preview"><span>{initials(spotlight.homeName)}</span><strong>{prediction.homeScore} - {prediction.awayScore}</strong><span>{initials(spotlight.awayName)}</span></div>
-            <dl><div><dt>First scorer</dt><dd>{prediction.firstScorer}</dd></div><div><dt>Goal window</dt><dd>{prediction.goalWindow} min</dd></div><div><dt>Maximum haul</dt><dd>{projectedPoints} pts</dd></div></dl>
-            <button className="submit-prediction" type="submit" disabled={saving}>{saving ? "Locking prediction..." : submitted ? "Update prediction" : "Lock prediction"}{submitted ? <Check size={19} weight="bold" /> : <ArrowRight size={19} weight="bold" />}</button>
+            <div className="scoring-key" aria-label="Scoring rules"><span>Result <b>3</b></span><span>Exact <b>+5</b></span><span>Scorer <b>4</b></span><span>Window <b>2</b></span><span>First team <b>1</b></span></div>
+            <dl><div><dt>First scorer</dt><dd>{selectedScorer}</dd></div><div><dt>Goal window</dt><dd>{prediction.goalWindow === NO_GOAL ? "No goal" : `${prediction.goalWindow} min`}</dd></div><div><dt>Maximum haul</dt><dd>{projectedPoints} pts</dd></div></dl>
+            <button className="submit-prediction" type="submit" disabled={saving || predictionsClosed || !spotlight.players.length}>{saving ? "Locking prediction..." : predictionsClosed ? "Predictions closed" : submitted ? "Update prediction" : "Lock prediction"}{submitted ? <Check size={19} weight="bold" /> : <ArrowRight size={19} weight="bold" />}</button>
             {notice && <p className="form-notice" role="status">{notice}</p>}
           </aside>
         </form>
@@ -452,8 +511,8 @@ function strengthMatchup(spotlight: Spotlight) {
     : "Evenly matched";
 }
 
-function ScoreControl({ label, value, onChange }: { label: string; value: number; onChange: (value: number) => void }) {
-  return <div className="score-control"><span>{label}</span><div><button type="button" onClick={() => onChange(Math.max(0, value - 1))} aria-label={`Decrease ${label} score`}>−</button><strong>{value}</strong><button type="button" onClick={() => onChange(Math.min(9, value + 1))} aria-label={`Increase ${label} score`}>+</button></div></div>;
+function ScoreControl({ label, value, disabled, onChange }: { label: string; value: number; disabled: boolean; onChange: (value: number) => void }) {
+  return <div className="score-control"><span>{label}</span><div><button type="button" disabled={disabled} onClick={() => onChange(Math.max(0, value - 1))} aria-label={`Decrease ${label} score`}>−</button><strong>{value}</strong><button type="button" disabled={disabled} onClick={() => onChange(Math.min(9, value + 1))} aria-label={`Increase ${label} score`}>+</button></div></div>;
 }
 
 function LeaderboardView() {

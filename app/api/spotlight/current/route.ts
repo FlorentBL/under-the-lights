@@ -12,6 +12,14 @@ export async function GET() {
     FROM spotlights s JOIN spotlight_candidates c ON c.id = s.candidate_id
     WHERE s.status = 'published' ORDER BY c.kickoff DESC LIMIT 1`).first<Record<string, unknown>>();
   if (!row) return NextResponse.json({ spotlight: null });
+  const matchId = String(row.fixture_id);
+  const [players, result] = await Promise.all([
+    db.prepare(`SELECT player_id, club_id, player_name, position, rating
+      FROM spotlight_players WHERE match_id = ? ORDER BY club_id, rating DESC, player_name`)
+      .bind(matchId).all<Record<string, unknown>>(),
+    db.prepare(`SELECT home_score, away_score, first_scorer, first_goal_minute, goal_window, first_team, settled_at
+      FROM match_results WHERE match_id = ?`).bind(matchId).first<Record<string, unknown>>(),
+  ]);
   return NextResponse.json({ spotlight: {
     fixtureId: row.fixture_id,
     kickoff: row.kickoff,
@@ -34,5 +42,21 @@ export async function GET() {
     title: row.editorial_title,
     summary: row.editorial_summary,
     reasons: JSON.parse(String(row.reasons || "[]")),
+    players: (players.results || []).map((player) => ({
+      id: player.player_id,
+      clubId: player.club_id,
+      name: player.player_name,
+      position: player.position,
+      rating: player.rating,
+    })),
+    result: result ? {
+      homeScore: result.home_score,
+      awayScore: result.away_score,
+      firstScorer: result.first_scorer,
+      firstGoalMinute: result.first_goal_minute,
+      goalWindow: result.goal_window,
+      firstTeam: result.first_team,
+      settledAt: result.settled_at,
+    } : null,
   } });
 }

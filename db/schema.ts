@@ -128,3 +128,41 @@ export const spotlights = sqliteTable("spotlights", {
   publishedAt: integer("published_at").notNull(),
   updatedAt: integer("updated_at").notNull(),
 }, (table) => [index("spotlights_status_idx").on(table.status)]);
+
+export const spotlightPlayers = sqliteTable("spotlight_players", {
+  id: text("id").primaryKey(),
+  matchId: text("match_id").notNull(),
+  playerId: integer("player_id").notNull(),
+  clubId: integer("club_id").notNull(),
+  playerName: text("player_name").notNull(),
+  position: integer("position"),
+  rating: integer("rating"),
+  createdAt: integer("created_at").notNull(),
+}, (table) => [
+  index("spotlight_players_match_idx").on(table.matchId),
+  uniqueIndex("spotlight_players_match_player_idx").on(table.matchId, table.playerId),
+]);
+
+export const matchResults = sqliteTable("match_results", {
+  matchId: text("match_id").primaryKey(),
+  fixtureId: integer("fixture_id").notNull().unique(),
+  homeScore: integer("home_score").notNull(),
+  awayScore: integer("away_score").notNull(),
+  firstScorer: text("first_scorer").notNull(),
+  firstGoalMinute: integer("first_goal_minute"),
+  goalWindow: text("goal_window").notNull(),
+  firstTeam: text("first_team").notNull(),
+  sourceUpdatedAt: integer("source_updated_at").notNull(),
+  settledAt: integer("settled_at").notNull(),
+});
+
+export const predictionScores = sqliteTable("prediction_scores", {
+  predictionId: text("prediction_id").primaryKey().references(() => predictions.id, { onDelete: "cascade" }),
+  outcomePoints: integer("outcome_points").notNull(),
+  exactScorePoints: integer("exact_score_points").notNull(),
+  firstScorerPoints: integer("first_scorer_points").notNull(),
+  goalWindowPoints: integer("goal_window_points").notNull(),
+  firstTeamPoints: integer("first_team_points").notNull(),
+  totalPoints: integer("total_points").notNull(),
+  scoredAt: integer("scored_at").notNull(),
+}, (table) => [index("prediction_scores_total_idx").on(table.totalPoints)]);
