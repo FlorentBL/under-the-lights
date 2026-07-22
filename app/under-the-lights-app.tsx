@@ -221,7 +221,7 @@ function AuthDialog({ onClose }: { onClose: () => void }) {
   useEffect(() => {
     fetch("/api/auth-providers")
       .then((response) => response.json())
-      .then((providers: { discord?: boolean }) => setDiscordEnabled(Boolean(providers.discord)))
+      .then((providers) => setDiscordEnabled(Boolean((providers as { discord?: boolean }).discord)))
       .catch(() => setDiscordEnabled(false));
   }, []);
 

@@ -2,19 +2,6 @@ import { NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { env } from "cloudflare:workers";
 
-type D1Statement = {
-  bind: (...values: unknown[]) => D1Statement;
-};
-
-type D1Database = {
-  prepare: (query: string) => D1Statement;
-  batch: (statements: D1Statement[]) => Promise<unknown>;
-};
-
-async function getDatabase(): Promise<D1Database | null> {
-  return (env as Cloudflare.Env).DB ?? null;
-}
-
 export async function POST(request: Request) {
   const session = await auth.api.getSession({ headers: request.headers });
   if (!session) {
@@ -33,7 +20,7 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Invalid prediction" }, { status: 400 });
   }
 
-  const db = await getDatabase();
+  const db = (env as Cloudflare.Env).DB;
   if (!db) {
     return NextResponse.json({ ok: true, persisted: false, submittedAt: Date.now() });
   }
