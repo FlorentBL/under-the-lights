@@ -59,3 +59,17 @@ test("protects predictions with Better Auth", async () => {
   assert.match(schema, /sqliteTable\("session"/);
   assert.match(schema, /sqliteTable\("account"/);
 });
+
+test("exposes the participant registry only to administrators", async () => {
+  const [usersRoute, adminPanel] = await Promise.all([
+    readFile(new URL("../app/api/admin/users/route.ts", import.meta.url), "utf8"),
+    readFile(new URL("../app/admin/admin-panel.tsx", import.meta.url), "utf8"),
+  ]);
+
+  assert.match(usersRoute, /requireAdmin/);
+  assert.match(usersRoute, /COUNT\(DISTINCT p\.id\)/);
+  assert.match(usersRoute, /MAX\(s\.updated_at\)/);
+  assert.doesNotMatch(usersRoute, /access_token|refresh_token|password/);
+  assert.match(adminPanel, /Participant registry/);
+  assert.match(adminPanel, /Search name, email or provider/);
+});

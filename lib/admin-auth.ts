@@ -8,12 +8,15 @@ function configuredAdminEmails() {
   return new Set(value.split(",").map((email) => email.trim().toLowerCase()).filter(Boolean));
 }
 
+export function isAdminEmail(email: string) {
+  return configuredAdminEmails().has(email.trim().toLowerCase());
+}
+
 export async function requireAdmin(request: Request) {
   const session = await auth.api.getSession({ headers: request.headers });
   if (!session) return { ok: false as const, status: 401, error: "Authentication required" };
 
-  const admins = configuredAdminEmails();
-  if (!admins.has(session.user.email.toLowerCase())) {
+  if (!isAdminEmail(session.user.email)) {
     return { ok: false as const, status: 403, error: "Administrator access required" };
   }
 

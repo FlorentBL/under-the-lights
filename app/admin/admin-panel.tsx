@@ -11,6 +11,7 @@ import {
   GlobeHemisphereWest,
   Lightning,
   LockKey,
+  MagnifyingGlass,
   Ranking,
   SoccerBall,
   Sparkle,
@@ -68,11 +69,37 @@ type Overview = {
   };
 };
 
+type AdminView = "radar" | "users";
+
+type AdminUser = {
+  id: string;
+  name: string;
+  email: string;
+  emailVerified: boolean;
+  providers: string[];
+  createdAt: number;
+  updatedAt: number;
+  lastActiveAt: number;
+  predictionCount: number;
+  role: "admin" | "player";
+};
+
+type UsersPayload = {
+  users: AdminUser[];
+  summary: {
+    total: number;
+    joinedThisWeek: number;
+    verified: number;
+    predictors: number;
+  };
+};
+
 const dateTime = new Intl.DateTimeFormat("en-GB", {
   weekday: "short", day: "numeric", month: "short", hour: "2-digit", minute: "2-digit", timeZone: "Europe/Paris",
 });
 
 export function AdminPanel() {
+  const [adminView, setAdminView] = useState<AdminView>("radar");
   const [data, setData] = useState<Overview | null>(null);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
@@ -167,9 +194,9 @@ export function AdminPanel() {
     <div className="admin-shell">
       <aside className="admin-sidebar">
         <Image src="/logo.png" alt="Under the Lights" width={1774} height={887} priority />
-        <div className="admin-nav-item active"><Crosshair size={19} weight="bold" /><span>Spotlight radar</span></div>
-        <div className="admin-nav-item"><Ranking size={19} /><span>Scoring rules</span><small>Soon</small></div>
-        <div className="admin-nav-item"><UsersThree size={19} /><span>Participants</span><small>Soon</small></div>
+        <button className={adminView === "radar" ? "admin-nav-item active" : "admin-nav-item"} onClick={() => setAdminView("radar")} aria-label="Spotlight radar"><Crosshair size={19} weight="bold" /><span>Spotlight radar</span></button>
+        <div className="admin-nav-item soon"><Ranking size={19} /><span>Scoring rules</span><small>Soon</small></div>
+        <button className={adminView === "users" ? "admin-nav-item active" : "admin-nav-item"} onClick={() => setAdminView("users")} aria-label="Participants"><UsersThree size={19} weight="bold" /><span>Participants</span></button>
         <div className="admin-sidebar-foot">
           <span>{initials(data.admin.name)}</span>
           <div><strong>{data.admin.name}</strong><small>Administrator</small></div>
@@ -178,18 +205,19 @@ export function AdminPanel() {
 
       <main className="admin-main">
         <header className="admin-topbar">
-          <div><p>Editorial control room</p><h1>Choose the match that matters.</h1></div>
+          <div><p>{adminView === "radar" ? "Editorial control room" : "Community registry"}</p><h1>{adminView === "radar" ? "Choose the match that matters." : "Track every player."}</h1></div>
           <div className="admin-top-actions">
             <a href="/"><ArrowLeft size={17} /> Public site</a>
-            <button onClick={runRadar} disabled={running}>
+            {adminView === "radar" && <button onClick={runRadar} disabled={running}>
               <ArrowsClockwise size={18} className={running ? "is-spinning" : ""} />
               {running ? "Scanning Soccerverse" : "Run radar"}
-            </button>
+            </button>}
           </div>
         </header>
 
         {error && <div className="admin-alert" role="alert"><WarningCircle size={20} /><span>{error}</span></div>}
 
+        {adminView === "users" ? <UsersView /> : <>
         <section className="admin-metrics" aria-label="Radar summary">
           <Metric icon={CalendarDots} label="Target weekend" value={data.run?.weekKey ? formatWeek(data.run.weekKey) : "Not calculated"} />
           <Metric icon={SoccerBall} label="Fixtures screened" value={String(data.run?.fixturesScanned || 0)} />
@@ -267,9 +295,91 @@ export function AdminPanel() {
             )}
           </section>
         )}
+        </>}
       </main>
     </div>
   );
+}
+
+function UsersView() {
+  const [payload, setPayload] = useState<UsersPayload | null>(null);
+  const [query, setQuery] = useState("");
+  const [error, setError] = useState("");
+
+  useEffect(() => {
+    const controller = new AbortController();
+    fetch("/api/admin/users", { cache: "no-store", signal: controller.signal })
+      .then(async (response) => {
+        const result = await response.json() as UsersPayload & { error?: string };
+        if (!response.ok) throw new Error(result.error || "Participant registry unavailable");
+        return result;
+      })
+      .then(setPayload)
+      .catch((cause) => {
+        if (!controller.signal.aborted) setError(cause instanceof Error ? cause.message : "Participant registry unavailable");
+      });
+    return () => controller.abort();
+  }, []);
+
+  const visibleUsers = useMemo(() => {
+    const needle = query.trim().toLowerCase();
+    if (!needle) return payload?.users || [];
+    return (payload?.users || []).filter((user) =>
+      `${user.name} ${user.email} ${user.providers.join(" ")}`.toLowerCase().includes(needle),
+    );
+  }, [payload, query]);
+
+  if (error) return <section className="admin-empty error-state"><WarningCircle size={42} /><h2>Registry unavailable.</h2><p>{error}</p></section>;
+  if (!payload) return <UsersLoading />;
+
+  return (
+    <>
+      <section className="admin-metrics" aria-label="Participant summary">
+        <Metric icon={UsersThree} label="Registered players" value={String(payload.summary.total)} />
+        <Metric icon={CalendarDots} label="Joined this week" value={String(payload.summary.joinedThisWeek)} />
+        <Metric icon={CheckCircle} label="Verified accounts" value={String(payload.summary.verified)} />
+        <Metric icon={SoccerBall} label="Made a prediction" value={String(payload.summary.predictors)} />
+      </section>
+
+      <section className="users-registry">
+        <header className="users-registry-head">
+          <div><h2>Participant registry</h2><p>Every account created for Under the Lights, newest first.</p></div>
+          <label className="user-search">
+            <MagnifyingGlass size={17} />
+            <span className="sr-only">Search participants</span>
+            <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search name, email or provider" />
+          </label>
+        </header>
+
+        {visibleUsers.length ? (
+          <div className="users-table-wrap">
+            <table className="users-table">
+              <thead><tr><th>Participant</th><th>Sign-in</th><th>Joined</th><th>Last active</th><th>Predictions</th><th>Access</th></tr></thead>
+              <tbody>
+                {visibleUsers.map((user) => (
+                  <tr key={user.id}>
+                    <td data-label="Participant"><div className="user-identity"><span>{initials(user.name)}</span><div><strong>{user.name}</strong><small>{user.email}{user.emailVerified ? " / Verified" : ""}</small></div></div></td>
+                    <td data-label="Sign-in"><div className="provider-list">{user.providers.map((provider) => <span key={provider}>{providerLabel(provider)}</span>)}</div></td>
+                    <td data-label="Joined"><time dateTime={new Date(user.createdAt).toISOString()}>{memberDate(user.createdAt)}</time></td>
+                    <td data-label="Last active"><time dateTime={new Date(user.lastActiveAt).toISOString()}>{relativeActivity(user.lastActiveAt)}</time></td>
+                    <td data-label="Predictions"><strong className="prediction-count">{user.predictionCount}</strong></td>
+                    <td data-label="Access"><span className={`access-level ${user.role}`}>{user.role === "admin" ? "Admin" : "Player"}</span></td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        ) : (
+          <div className="users-empty"><MagnifyingGlass size={30} /><strong>No participant found</strong><span>Try another name, email or sign-in provider.</span></div>
+        )}
+        <footer className="users-registry-foot"><span>{visibleUsers.length} of {payload.summary.total} participants</span><span>Up to 500 newest accounts</span></footer>
+      </section>
+    </>
+  );
+}
+
+function UsersLoading() {
+  return <section className="users-loading" aria-label="Loading participants"><div /><div /><div /><div /><div /></section>;
 }
 
 function Metric({ icon: Icon, label, value }: { icon: typeof CalendarDots; label: string; value: string }) {
@@ -309,4 +419,21 @@ function formatStrength(value: number | null) {
 
 function formatWeek(weekKey: string) {
   return new Intl.DateTimeFormat("en-GB", { day: "numeric", month: "short", year: "numeric", timeZone: "UTC" }).format(new Date(`${weekKey}T12:00:00Z`));
+}
+
+function providerLabel(provider: string) {
+  return provider === "credential" ? "Email" : provider.charAt(0).toUpperCase() + provider.slice(1);
+}
+
+function memberDate(timestamp: number) {
+  return new Intl.DateTimeFormat("en-GB", { day: "numeric", month: "short", year: "numeric" }).format(new Date(timestamp));
+}
+
+function relativeActivity(timestamp: number) {
+  const elapsed = Date.now() - timestamp;
+  if (elapsed < 60_000) return "Just now";
+  if (elapsed < 3_600_000) return `${Math.floor(elapsed / 60_000)} min ago`;
+  if (elapsed < 86_400_000) return `${Math.floor(elapsed / 3_600_000)} hr ago`;
+  if (elapsed < 7 * 86_400_000) return `${Math.floor(elapsed / 86_400_000)} days ago`;
+  return memberDate(timestamp);
 }
