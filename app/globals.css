@@ -96,6 +96,7 @@ button:focus-visible, a:focus-visible, select:focus-visible, input:focus-visible
 .nav-button.active { color: var(--gold-bright); background: rgba(217,172,67,.065); }
 .nav-button.active::after { transform: scaleX(1); }
 .nav-button:active { transform: translateY(1px); }
+.admin-link { display: inline-flex; align-items: center; gap: 7px; text-decoration: none; }
 .header-actions { display: flex; justify-content: flex-end; align-items: center; gap: 8px; }
 .sign-in-button, .profile-chip {
   min-height: 42px;

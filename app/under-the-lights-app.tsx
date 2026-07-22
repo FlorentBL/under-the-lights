@@ -129,6 +129,18 @@ export function UnderTheLightsApp() {
   const [saving, setSaving] = useState(false);
   const [notice, setNotice] = useState("");
   const [spotlight, setSpotlight] = useState<Spotlight>(fallbackSpotlight);
+  const [adminUserId, setAdminUserId] = useState("");
+
+  useEffect(() => {
+    if (!session) return;
+
+    fetch("/api/admin/access", { cache: "no-store" })
+      .then(async (response) => await response.json() as { admin?: boolean })
+      .then((payload) => setAdminUserId(payload.admin ? session.user.id : ""))
+      .catch(() => setAdminUserId(""));
+  }, [session]);
+
+  const isAdmin = Boolean(session && adminUserId === session.user.id);
 
   useEffect(() => {
     fetch("/api/spotlight/current")
@@ -208,6 +220,7 @@ export function UnderTheLightsApp() {
           <NavButton active={view === "leaderboard"} onClick={() => navigate("leaderboard")}>Leaderboard</NavButton>
           <NavButton active={view === "achievements"} onClick={() => navigate("achievements")}>Achievements</NavButton>
           <NavButton active={view === "profile"} onClick={() => navigate("profile")}>My profile</NavButton>
+          {isAdmin && <a className="nav-button admin-link" href="/admin"><Lock size={15} weight="bold" /> Admin</a>}
         </nav>
         <div className="header-actions">
           {session ? (
