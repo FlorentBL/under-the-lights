@@ -1,8 +1,23 @@
-import { env } from "cloudflare:workers";
 import { NextResponse } from "next/server";
 
-async function ensureTables() {
-  const db = env.DB;
+type D1Statement = {
+  bind: (...values: unknown[]) => D1Statement;
+};
+
+type D1Database = {
+  prepare: (query: string) => D1Statement;
+  batch: (statements: D1Statement[]) => Promise<unknown>;
+};
+
+async function getDatabase(): Promise<D1Database | null> {
+  if (process.env.VERCEL === "1") return null;
+
+  const moduleId = "cloudflare:workers";
+  const workers = await import(moduleId) as { env?: { DB?: D1Database } };
+  return workers.env?.DB ?? null;
+}
+
+async function ensureTables(db: D1Database) {
   await db.batch([
     db.prepare(`CREATE TABLE IF NOT EXISTS participants (
       id TEXT PRIMARY KEY NOT NULL,
@@ -41,10 +56,14 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Invalid prediction" }, { status: 400 });
   }
 
-  await ensureTables();
+  const db = await getDatabase();
+  if (!db) {
+    return NextResponse.json({ ok: true, persisted: false, submittedAt: Date.now() });
+  }
+
+  await ensureTables(db);
   const now = Date.now();
   const predictionId = `${deviceId}:${matchId}`;
-  const db = env.DB;
 
   await db.batch([
     db.prepare(`INSERT INTO participants (id, display_name, created_at, updated_at)
@@ -64,5 +83,5 @@ export async function POST(request: Request) {
       .bind(predictionId, deviceId, matchId, homeScore, awayScore, firstScorer, goalWindow, firstTeam, now),
   ]);
 
-  return NextResponse.json({ ok: true, submittedAt: now });
+  return NextResponse.json({ ok: true, persisted: true, submittedAt: now });
 }
