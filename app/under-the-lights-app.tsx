@@ -472,10 +472,10 @@ function SpotlightView({ spotlight, prediction, setPrediction, submitted, saving
             </select></label>
             <fieldset className="field-block"><legend>First goal window</legend><div className="choice-row">{GOAL_WINDOWS.map((window) => <button type="button" key={window} disabled={predictionsClosed} className={prediction.goalWindow === window ? "choice active" : "choice"} onClick={() => setPrediction({ ...prediction, goalWindow: window })}>{window === NO_GOAL ? "No goal" : window}</button>)}</div></fieldset>
             <fieldset className="field-block"><legend>Who scores first?</legend><div className="choice-row three">{[
-              { value: String(spotlight.homeClubId), label: spotlight.homeName },
-              { value: String(spotlight.awayClubId), label: spotlight.awayName },
-              { value: NO_GOAL, label: "No goal" },
-            ].map((team) => <button type="button" key={team.value} disabled={predictionsClosed} className={prediction.firstTeam === team.value ? "choice active" : "choice"} onClick={() => setPrediction({ ...prediction, firstTeam: team.value })}>{team.label}</button>)}</div></fieldset>
+              { key: "home", value: String(spotlight.homeClubId), label: spotlight.homeName },
+              { key: "away", value: String(spotlight.awayClubId), label: spotlight.awayName },
+              { key: "no-goal", value: NO_GOAL, label: "No goal" },
+            ].map((team) => <button type="button" key={team.key} disabled={predictionsClosed} className={prediction.firstTeam === team.value ? "choice active" : "choice"} onClick={() => setPrediction({ ...prediction, firstTeam: team.value })}>{team.label}</button>)}</div></fieldset>
           </div>
 
           <aside className="prediction-summary">
