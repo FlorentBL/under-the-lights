@@ -7,6 +7,7 @@ import {
   type SeasonHistoryItem,
   type SeasonPayload,
 } from "@/lib/season";
+import { publicAvatarUrl } from "@/lib/profile-avatar";
 import type { GoalWindow } from "@/lib/scoring";
 
 function nullableNumber(value: unknown) {
@@ -84,6 +85,7 @@ export async function awardParticipantBadges(db: D1Database, participantIds: str
 
 async function loadLeaderboard(db: D1Database, viewerId?: string): Promise<LeaderboardEntry[]> {
   const rows = await db.prepare(`SELECT pt.id AS participant_id, pt.display_name, up.soccerverse_username,
+      up.avatar_data_url, up.updated_at AS profile_updated_at, u.image AS auth_image,
       COUNT(DISTINCT p.id) AS predictions,
       COUNT(DISTINCT ps.prediction_id) AS played,
       COALESCE(SUM(ps.total_points), 0) AS points,
@@ -92,9 +94,10 @@ async function loadLeaderboard(db: D1Database, viewerId?: string): Promise<Leade
       (SELECT COUNT(*) FROM participant_badges pb WHERE pb.participant_id = pt.id) AS badges
     FROM participants pt
     JOIN predictions p ON p.participant_id = pt.id
+    LEFT JOIN user u ON u.id = pt.id
     LEFT JOIN user_profiles up ON up.user_id = pt.id
     LEFT JOIN prediction_scores ps ON ps.prediction_id = p.id
-    GROUP BY pt.id, pt.display_name, up.soccerverse_username
+    GROUP BY pt.id, pt.display_name, up.soccerverse_username, up.avatar_data_url, up.updated_at, u.image
     ORDER BY points DESC, exact_scores DESC, correct_outcomes DESC, pt.updated_at ASC, pt.id ASC
     LIMIT 100`).all<Record<string, unknown>>();
 
@@ -102,6 +105,9 @@ async function loadLeaderboard(db: D1Database, viewerId?: string): Promise<Leade
     participantId: String(row.participant_id),
     rank: index + 1,
     displayName: String(row.display_name),
+    avatarUrl: row.avatar_data_url
+      ? publicAvatarUrl(String(row.participant_id), Number(row.profile_updated_at))
+      : row.auth_image ? String(row.auth_image) : null,
     soccerverseUsername: row.soccerverse_username ? String(row.soccerverse_username) : null,
     points: Number(row.points),
     exactScores: Number(row.exact_scores),
@@ -121,7 +127,11 @@ export async function loadSeason(db: D1Database, participantId?: string): Promis
     loadParticipantHistory(db, participantId),
     db.prepare("SELECT badge_key, earned_at FROM participant_badges WHERE participant_id = ?")
       .bind(participantId).all<Record<string, unknown>>(),
-    db.prepare("SELECT soccerverse_username FROM user_profiles WHERE user_id = ?")
+    db.prepare(`SELECT up.soccerverse_username, up.avatar_data_url, up.updated_at AS profile_updated_at,
+        u.image AS auth_image
+      FROM user u
+      LEFT JOIN user_profiles up ON up.user_id = u.id
+      WHERE u.id = ?`)
       .bind(participantId).first<Record<string, unknown>>(),
     db.prepare("SELECT id FROM participants WHERE id = ?")
       .bind(participantId).first<Record<string, unknown>>(),
@@ -138,6 +148,10 @@ export async function loadSeason(db: D1Database, participantId?: string): Promis
     viewer: {
       participantId: participant ? participantId : null,
       rank: leaderboard.find((entry) => entry.isViewer)?.rank || null,
+      avatarUrl: profile?.avatar_data_url
+        ? publicAvatarUrl(participantId, Number(profile.profile_updated_at))
+        : profile?.auth_image ? String(profile.auth_image) : null,
+      hasCustomAvatar: Boolean(profile?.avatar_data_url),
       soccerverseUsername: profile?.soccerverse_username ? String(profile.soccerverse_username) : null,
       stats: {
         points,
@@ -155,8 +169,10 @@ export async function loadSeason(db: D1Database, participantId?: string): Promis
 }
 
 export async function loadPublicPlayerProfile(db: D1Database, participantId: string): Promise<PublicPlayerProfile | null> {
-  const participant = await db.prepare(`SELECT pt.id, pt.display_name, up.soccerverse_username
+  const participant = await db.prepare(`SELECT pt.id, pt.display_name, up.soccerverse_username,
+      up.avatar_data_url, up.updated_at AS profile_updated_at, u.image AS auth_image
     FROM participants pt
+    LEFT JOIN user u ON u.id = pt.id
     LEFT JOIN user_profiles up ON up.user_id = pt.id
     WHERE pt.id = ?`).bind(participantId).first<Record<string, unknown>>();
   if (!participant) return null;
@@ -181,6 +197,9 @@ export async function loadPublicPlayerProfile(db: D1Database, participantId: str
   return {
     participantId: String(participant.id),
     displayName: String(participant.display_name),
+    avatarUrl: participant.avatar_data_url
+      ? publicAvatarUrl(String(participant.id), Number(participant.profile_updated_at))
+      : participant.auth_image ? String(participant.auth_image) : null,
     soccerverseUsername: participant.soccerverse_username ? String(participant.soccerverse_username) : null,
     rank: leaderboard.find((entry) => entry.participantId === participantId)?.rank || null,
     stats: {

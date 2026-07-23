@@ -35,9 +35,10 @@ import {
   X,
 } from "@phosphor-icons/react";
 import Image from "next/image";
-import { FormEvent, useCallback, useEffect, useRef, useState } from "react";
+import { ChangeEvent, FormEvent, useCallback, useEffect, useRef, useState } from "react";
 import { authClient } from "@/lib/auth-client";
 import { positionCategories, positionSummary, primaryPositionCategory, type PositionCategory } from "@/lib/player-positions";
+import { MAX_AVATAR_DATA_URL_LENGTH } from "@/lib/profile-avatar";
 import { GOAL_WINDOWS, MAX_PREDICTION_POINTS, NO_GOAL, type GoalWindow, type ScoreBreakdown } from "@/lib/scoring";
 import type { BadgeKey, SeasonPayload, SeasonViewer } from "@/lib/season";
 import { soccerverseProfileUrl } from "@/lib/soccerverse-profile";
@@ -408,6 +409,59 @@ export function UnderTheLightsApp() {
 
 function initials(name: string) {
   return name.split(/\s+/).map((part) => part[0]).join("").slice(0, 2).toUpperCase();
+}
+
+function CompetitorAvatar({ name, avatarUrl, className = "" }: { name: string; avatarUrl: string | null; className?: string }) {
+  return (
+    <span className={`competitor-avatar ${className}`.trim()} aria-hidden="true">
+      {initials(name)}
+      {avatarUrl && <span className="competitor-avatar-image" style={{ backgroundImage: `url(${JSON.stringify(avatarUrl)})` }} />}
+    </span>
+  );
+}
+
+async function prepareAvatar(file: File) {
+  if (!["image/jpeg", "image/png", "image/webp"].includes(file.type)) {
+    throw new Error("Choose a JPEG, PNG or WebP image");
+  }
+  if (file.size > 10_000_000) throw new Error("Choose an image smaller than 10 MB");
+
+  const objectUrl = URL.createObjectURL(file);
+  try {
+    const image = new window.Image();
+    image.decoding = "async";
+    await new Promise<void>((resolve, reject) => {
+      image.onload = () => resolve();
+      image.onerror = () => reject(new Error("This image could not be opened"));
+      image.src = objectUrl;
+    });
+    const side = Math.min(image.naturalWidth, image.naturalHeight);
+    if (!side) throw new Error("This image has invalid dimensions");
+
+    const canvas = document.createElement("canvas");
+    canvas.width = 384;
+    canvas.height = 384;
+    const context = canvas.getContext("2d");
+    if (!context) throw new Error("This browser cannot prepare the image");
+    context.drawImage(
+      image,
+      Math.floor((image.naturalWidth - side) / 2),
+      Math.floor((image.naturalHeight - side) / 2),
+      side,
+      side,
+      0,
+      0,
+      canvas.width,
+      canvas.height,
+    );
+    const avatarDataUrl = canvas.toDataURL("image/webp", .82);
+    if (avatarDataUrl.length > MAX_AVATAR_DATA_URL_LENGTH) {
+      throw new Error("The compressed profile photo is still too large");
+    }
+    return avatarDataUrl;
+  } finally {
+    URL.revokeObjectURL(objectUrl);
+  }
 }
 
 function SoccerverseAccountLink({ username, compact = false }: { username: string; compact?: boolean }) {
@@ -786,7 +840,7 @@ function SpotlightView({ spotlight, prediction, setPrediction, submitted, saving
 
       <section className="week-leaders">
         <div className="leaders-copy"><span>Season table</span><h2>The season never stops.</h2><p>Weekly precision builds a reputation across every league.</p><button className="text-link" onClick={onLeaderboard}>View full leaderboard <ArrowRight size={18} /></button></div>
-        <div className="leader-podium">{leaders.length ? leaders.slice(0, 3).map((entry) => <div key={entry.participantId} className="mini-rank"><span>{String(entry.rank).padStart(2, "0")}</span><div><a className="public-player-link" href={`/players/${encodeURIComponent(entry.participantId)}`}>{entry.displayName}</a><small>{entry.played} played · {entry.exactScores} exact</small>{entry.soccerverseUsername && <SoccerverseAccountLink username={entry.soccerverseUsername} compact />}</div><b>{entry.points}<small> pts</small></b></div>) : <SeasonEmpty compact title="The table is waiting" description="The first settled spotlight will reveal the opening standings." />}</div>
+        <div className="leader-podium">{leaders.length ? leaders.slice(0, 3).map((entry) => <div key={entry.participantId} className="mini-rank"><span>{String(entry.rank).padStart(2, "0")}</span><div><CompetitorAvatar name={entry.displayName} avatarUrl={entry.avatarUrl} className="mini-player-avatar" /><a className="public-player-link" href={`/players/${encodeURIComponent(entry.participantId)}`}>{entry.displayName}</a><small>{entry.played} played · {entry.exactScores} exact</small>{entry.soccerverseUsername && <SoccerverseAccountLink username={entry.soccerverseUsername} compact />}</div><b>{entry.points}<small> pts</small></b></div>) : <SeasonEmpty compact title="The table is waiting" description="The first settled spotlight will reveal the opening standings." />}</div>
       </section>
     </>
   );
@@ -1058,7 +1112,7 @@ function LeaderboardView({ leaders, loading }: { leaders: SeasonPayload["leaderb
     <section className="inner-page">
       <div className="page-intro"><div><Trophy size={25} weight="fill" /><span>Season 1 standings</span></div><h1>Every call<br />counts.</h1><p>Accuracy creates distance. Consistency keeps you under the lights.</p></div>
       <div className="leaderboard-layout">
-        <div className="leaderboard-table"><div className="table-header"><span>Rank</span><span>Player</span><span>Exact scores</span><span>Points</span></div>{leaders.map((entry) => <div className={entry.isViewer ? "table-row current" : "table-row"} key={entry.participantId}><span className="rank-number">{String(entry.rank).padStart(2, "0")}</span><span className="player-name"><i>{initials(entry.displayName)}</i><a className="public-player-link" href={`/players/${encodeURIComponent(entry.participantId)}`}>{entry.displayName}</a><small>{entry.played} played · {entry.badges} badges</small>{entry.soccerverseUsername && <SoccerverseAccountLink username={entry.soccerverseUsername} compact />}</span><span>{entry.exactScores}</span><strong>{entry.points}</strong></div>)}{!leaders.length && <SeasonEmpty title={loading ? "Loading the standings" : "No points awarded yet"} description={loading ? "Collecting the current season." : "The leaderboard starts as soon as the first spotlight is settled."} />}</div>
+        <div className="leaderboard-table"><div className="table-header"><span>Rank</span><span>Player</span><span>Exact scores</span><span>Points</span></div>{leaders.map((entry) => <div className={entry.isViewer ? "table-row current" : "table-row"} key={entry.participantId}><span className="rank-number">{String(entry.rank).padStart(2, "0")}</span><span className="player-name"><CompetitorAvatar name={entry.displayName} avatarUrl={entry.avatarUrl} /><a className="public-player-link" href={`/players/${encodeURIComponent(entry.participantId)}`}>{entry.displayName}</a><small>{entry.played} played · {entry.badges} badges</small>{entry.soccerverseUsername && <SoccerverseAccountLink username={entry.soccerverseUsername} compact />}</span><span>{entry.exactScores}</span><strong>{entry.points}</strong></div>)}{!leaders.length && <SeasonEmpty title={loading ? "Loading the standings" : "No points awarded yet"} description={loading ? "Collecting the current season." : "The leaderboard starts as soon as the first spotlight is settled."} />}</div>
         <aside className="season-card"><Medal size={34} weight="fill" /><h2>Season honours</h2><p>Accuracy decides the table. Exploration, timing and bold calls build a separate badge collection.</p><div><span>Current campaign</span><strong>Season 1</strong></div></aside>
       </div>
     </section>
@@ -1096,9 +1150,58 @@ function historyBreakdown(score: NonNullable<SeasonViewer["history"][number]["sc
 function ProfileView({ user, viewer, loading, onAchievements, onProfileUpdated, onSignIn }: { user: { name: string; email: string; image?: string | null } | null; viewer: SeasonViewer | null; loading: boolean; onAchievements: () => void; onProfileUpdated: () => Promise<void>; onSignIn: () => void }) {
   const [soccerverseUsername, setSoccerverseUsername] = useState(viewer?.soccerverseUsername || "");
   const [savedSoccerverseUsername, setSavedSoccerverseUsername] = useState(viewer?.soccerverseUsername || "");
+  const [avatarUrl, setAvatarUrl] = useState(viewer?.avatarUrl || user?.image || null);
+  const [hasCustomAvatar, setHasCustomAvatar] = useState(Boolean(viewer?.hasCustomAvatar));
+  const [avatarSaving, setAvatarSaving] = useState(false);
+  const [avatarNotice, setAvatarNotice] = useState("");
+  const [avatarError, setAvatarError] = useState("");
   const [profileSaving, setProfileSaving] = useState(false);
   const [profileNotice, setProfileNotice] = useState("");
   const [profileError, setProfileError] = useState("");
+  const avatarInputRef = useRef<HTMLInputElement>(null);
+
+  async function saveAvatar(avatarDataUrl: string | null) {
+    setAvatarSaving(true);
+    setAvatarNotice("");
+    setAvatarError("");
+    try {
+      const response = await fetch("/api/profile", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ avatarDataUrl }),
+      });
+      const payload = await response.json() as {
+        avatarUrl?: string | null;
+        hasCustomAvatar?: boolean;
+        error?: string;
+      };
+      if (!response.ok) throw new Error(payload.error || "Profile photo could not be saved");
+      setAvatarUrl(payload.avatarUrl || null);
+      setHasCustomAvatar(Boolean(payload.hasCustomAvatar));
+      setAvatarNotice(payload.hasCustomAvatar ? "Profile photo updated." : "Custom photo removed.");
+      await onProfileUpdated();
+    } catch (error) {
+      setAvatarError(error instanceof Error ? error.message : "Profile photo could not be saved");
+    } finally {
+      setAvatarSaving(false);
+      if (avatarInputRef.current) avatarInputRef.current.value = "";
+    }
+  }
+
+  async function selectAvatar(event: ChangeEvent<HTMLInputElement>) {
+    const file = event.target.files?.[0];
+    if (!file) return;
+    setAvatarSaving(true);
+    setAvatarNotice("");
+    setAvatarError("");
+    try {
+      await saveAvatar(await prepareAvatar(file));
+    } catch (error) {
+      setAvatarError(error instanceof Error ? error.message : "Profile photo could not be prepared");
+      setAvatarSaving(false);
+      event.target.value = "";
+    }
+  }
 
   async function saveSoccerverseAccount(value: string) {
     setProfileSaving(true);
@@ -1133,7 +1236,18 @@ function ProfileView({ user, viewer, loading, onAchievements, onProfileUpdated, 
   const stats = viewer?.stats || { points: 0, exactScores: 0, accuracy: 0, countries: 0, predictions: 0 };
   return (
     <section className="inner-page">
-      <div className="profile-hero"><div className="profile-avatar"><UserCircle size={68} weight="duotone" /></div><div><span>{viewer?.rank ? `Season rank #${viewer.rank}` : "Season 1 competitor"}</span><h1>{user.name}</h1><p>{user.email}</p>{savedSoccerverseUsername && <SoccerverseAccountLink username={savedSoccerverseUsername} />}</div><div className="profile-actions">{viewer?.participantId && <a href={`/players/${encodeURIComponent(viewer.participantId)}`}>View public profile <ArrowSquareOut size={18} /></a>}<button onClick={onAchievements}>View achievements <ArrowRight size={18} /></button><button className="sign-out-button" onClick={() => authClient.signOut()}><SignOut size={18} /> Sign out</button></div></div>
+      <div className="profile-hero">
+        <div className="profile-avatar-editor">
+          <CompetitorAvatar name={user.name} avatarUrl={avatarUrl} className="profile-avatar" />
+          <input ref={avatarInputRef} type="file" accept="image/jpeg,image/png,image/webp" onChange={(event) => void selectAvatar(event)} disabled={avatarSaving} />
+          <button type="button" className="profile-photo-button" onClick={() => avatarInputRef.current?.click()} disabled={avatarSaving}>{avatarSaving ? "Preparing..." : "Change photo"}</button>
+          {hasCustomAvatar && <button type="button" className="profile-photo-remove" onClick={() => void saveAvatar(null)} disabled={avatarSaving}>Remove</button>}
+          {avatarNotice && <small className="profile-photo-notice success" role="status">{avatarNotice}</small>}
+          {avatarError && <small className="profile-photo-notice error" role="alert">{avatarError}</small>}
+        </div>
+        <div><span>{viewer?.rank ? `Season rank #${viewer.rank}` : "Season 1 competitor"}</span><h1>{user.name}</h1><p>{user.email}</p>{savedSoccerverseUsername && <SoccerverseAccountLink username={savedSoccerverseUsername} />}</div>
+        <div className="profile-actions">{viewer?.participantId && <a href={`/players/${encodeURIComponent(viewer.participantId)}`}>View public profile <ArrowSquareOut size={18} /></a>}<button onClick={onAchievements}>View achievements <ArrowRight size={18} /></button><button className="sign-out-button" onClick={() => authClient.signOut()}><SignOut size={18} /> Sign out</button></div>
+      </div>
       <section className="profile-connection" aria-labelledby="soccerverse-account-title">
         <div><SoccerBall size={28} weight="duotone" /><div><h2 id="soccerverse-account-title">Your Soccerverse account</h2><p>Add your in-game username so players can open your public Soccerverse profile from the leaderboard.</p></div></div>
         <form onSubmit={submitSoccerverseAccount}>

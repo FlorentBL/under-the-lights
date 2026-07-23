@@ -220,3 +220,23 @@ test("links Under the Lights players to their Soccerverse profiles", async () =>
   assert.match(schema, /sqliteTable\("user_profiles"/);
   assert.match(migration, /CREATE TABLE `user_profiles`/);
 });
+
+test("lets participants upload a safe custom profile photo", async () => {
+  const [app, profileRoute, avatarRoute, seasonData, schema, migration] = await Promise.all([
+    readFile(new URL("../app/under-the-lights-app.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../app/api/profile/route.ts", import.meta.url), "utf8"),
+    readFile(new URL("../app/api/players/[id]/avatar/route.ts", import.meta.url), "utf8"),
+    readFile(new URL("../lib/season-data.ts", import.meta.url), "utf8"),
+    readFile(new URL("../db/schema.ts", import.meta.url), "utf8"),
+    readFile(new URL("../drizzle/0008_profile_avatars.sql", import.meta.url), "utf8"),
+  ]);
+
+  assert.match(app, /Change photo/);
+  assert.match(app, /prepareAvatar/);
+  assert.match(app, /image\/jpeg,image\/png,image\/webp/);
+  assert.match(profileRoute, /parseAvatarDataUrl/);
+  assert.match(avatarRoute, /X-Content-Type-Options/);
+  assert.match(seasonData, /publicAvatarUrl/);
+  assert.match(schema, /avatarDataUrl/);
+  assert.match(migration, /ADD COLUMN `avatar_data_url`/);
+});
