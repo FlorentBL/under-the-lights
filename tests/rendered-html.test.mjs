@@ -129,3 +129,23 @@ test("exposes the participant registry only to administrators", async () => {
   assert.match(schema, /sqliteTable\("admin_users"/);
   assert.match(migration, /CREATE TABLE `admin_users`/);
 });
+
+test("ships an administrator settlement cockpit", async () => {
+  const [route, panel, schema, migration, worker] = await Promise.all([
+    readFile(new URL("../app/api/admin/settlement/route.ts", import.meta.url), "utf8"),
+    readFile(new URL("../app/admin/admin-panel.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../db/schema.ts", import.meta.url), "utf8"),
+    readFile(new URL("../drizzle/0006_settlement_checks.sql", import.meta.url), "utf8"),
+    readFile(new URL("../wrangler.jsonc", import.meta.url), "utf8"),
+  ]);
+
+  assert.match(route, /requireAdmin/);
+  assert.match(route, /settlePublishedSpotlights/);
+  assert.match(route, /Result checks begin at kick-off/);
+  assert.match(panel, /Match operations/);
+  assert.match(panel, /Check result now/);
+  assert.match(panel, /Result checks/);
+  assert.match(schema, /sqliteTable\("settlement_checks"/);
+  assert.match(migration, /CREATE TABLE `settlement_checks`/);
+  assert.match(worker, /"\* \* \* \* \*"/);
+});
