@@ -14,6 +14,7 @@ type UserRow = {
   prediction_count: number;
   last_prediction_at: number | null;
   delegated_admin_id: string | null;
+  soccerverse_username: string | null;
 };
 
 type RoleUpdate = { userId?: unknown; role?: unknown };
@@ -35,12 +36,14 @@ export async function GET(request: Request) {
       MAX(s.updated_at) AS last_session_at,
       COUNT(DISTINCT p.id) AS prediction_count,
       MAX(p.submitted_at) AS last_prediction_at,
-      MAX(au.user_id) AS delegated_admin_id
+      MAX(au.user_id) AS delegated_admin_id,
+      MAX(up.soccerverse_username) AS soccerverse_username
     FROM user u
     LEFT JOIN account a ON a.user_id = u.id
     LEFT JOIN session s ON s.user_id = u.id
     LEFT JOIN predictions p ON p.participant_id = u.id
     LEFT JOIN admin_users au ON au.user_id = u.id
+    LEFT JOIN user_profiles up ON up.user_id = u.id
     GROUP BY u.id
     ORDER BY u.created_at DESC
     LIMIT 500
@@ -65,6 +68,7 @@ export async function GET(request: Request) {
       role: roleSource ? "admin" : "player",
       roleSource,
       isCurrentUser: user.id === access.session.user.id,
+      soccerverseUsername: user.soccerverse_username || null,
     };
   });
 

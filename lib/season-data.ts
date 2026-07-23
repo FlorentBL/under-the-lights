@@ -75,7 +75,7 @@ export async function awardParticipantBadges(db: D1Database, participantIds: str
 }
 
 async function loadLeaderboard(db: D1Database, viewerId?: string): Promise<LeaderboardEntry[]> {
-  const rows = await db.prepare(`SELECT pt.id AS participant_id, pt.display_name,
+  const rows = await db.prepare(`SELECT pt.id AS participant_id, pt.display_name, up.soccerverse_username,
       COUNT(DISTINCT p.id) AS predictions,
       COUNT(DISTINCT ps.prediction_id) AS played,
       COALESCE(SUM(ps.total_points), 0) AS points,
@@ -84,14 +84,16 @@ async function loadLeaderboard(db: D1Database, viewerId?: string): Promise<Leade
       (SELECT COUNT(*) FROM participant_badges pb WHERE pb.participant_id = pt.id) AS badges
     FROM participants pt
     JOIN predictions p ON p.participant_id = pt.id
+    LEFT JOIN user_profiles up ON up.user_id = pt.id
     LEFT JOIN prediction_scores ps ON ps.prediction_id = p.id
-    GROUP BY pt.id, pt.display_name
+    GROUP BY pt.id, pt.display_name, up.soccerverse_username
     ORDER BY points DESC, exact_scores DESC, correct_outcomes DESC, pt.updated_at ASC, pt.id ASC
     LIMIT 100`).all<Record<string, unknown>>();
 
   return (rows.results || []).map((row, index) => ({
     rank: index + 1,
     displayName: String(row.display_name),
+    soccerverseUsername: row.soccerverse_username ? String(row.soccerverse_username) : null,
     points: Number(row.points),
     exactScores: Number(row.exact_scores),
     correctOutcomes: Number(row.correct_outcomes),
@@ -106,10 +108,12 @@ export async function loadSeason(db: D1Database, participantId?: string): Promis
   const leaderboard = await loadLeaderboard(db, participantId);
   if (!participantId) return { leaderboard, viewer: null };
 
-  const [history, earnedRows] = await Promise.all([
+  const [history, earnedRows, profile] = await Promise.all([
     loadParticipantHistory(db, participantId),
     db.prepare("SELECT badge_key, earned_at FROM participant_badges WHERE participant_id = ?")
       .bind(participantId).all<Record<string, unknown>>(),
+    db.prepare("SELECT soccerverse_username FROM user_profiles WHERE user_id = ?")
+      .bind(participantId).first<Record<string, unknown>>(),
   ]);
   const earnedAt = Object.fromEntries((earnedRows.results || []).map((row) => [String(row.badge_key) as BadgeKey, Number(row.earned_at)]));
   const badges = calculateBadgeProgress(history, earnedAt);
@@ -122,6 +126,7 @@ export async function loadSeason(db: D1Database, participantId?: string): Promis
     leaderboard,
     viewer: {
       rank: leaderboard.find((entry) => entry.isViewer)?.rank || null,
+      soccerverseUsername: profile?.soccerverse_username ? String(profile.soccerverse_username) : null,
       stats: {
         points,
         exactScores,

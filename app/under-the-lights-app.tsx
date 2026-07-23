@@ -40,6 +40,7 @@ import { authClient } from "@/lib/auth-client";
 import { positionCategories, positionSummary, primaryPositionCategory, type PositionCategory } from "@/lib/player-positions";
 import { GOAL_WINDOWS, MAX_PREDICTION_POINTS, NO_GOAL, type GoalWindow, type ScoreBreakdown } from "@/lib/scoring";
 import type { BadgeKey, SeasonPayload, SeasonViewer } from "@/lib/season";
+import { soccerverseProfileUrl } from "@/lib/soccerverse-profile";
 
 type View = "spotlight" | "how-it-works" | "leaderboard" | "achievements" | "project" | "profile";
 type AuthIntent = "sign-in" | "reset-password" | "verified" | "verification-error" | "reset-error";
@@ -391,7 +392,7 @@ export function UnderTheLightsApp() {
         {view === "leaderboard" && <LeaderboardView leaders={season.leaderboard} loading={seasonLoading} />}
         {view === "achievements" && <AchievementsView viewer={season.viewer} user={session?.user ?? null} loading={seasonLoading} onSignIn={openAuth} />}
         {view === "project" && <ProjectView onPlay={() => navigate("spotlight")} />}
-        {view === "profile" && <ProfileView user={session?.user ?? null} viewer={season.viewer} loading={seasonLoading} onAchievements={() => navigate("achievements")} onSignIn={openAuth} />}
+        {view === "profile" && <ProfileView key={seasonLoading ? "loading" : "loaded"} user={session?.user ?? null} viewer={season.viewer} loading={seasonLoading} onAchievements={() => navigate("achievements")} onProfileUpdated={refreshSeason} onSignIn={openAuth} />}
       </main>
 
       {authOpen && <AuthDialog intent={authIntent} token={authToken} onClose={() => setAuthOpen(false)} />}
@@ -407,6 +408,20 @@ export function UnderTheLightsApp() {
 
 function initials(name: string) {
   return name.split(/\s+/).map((part) => part[0]).join("").slice(0, 2).toUpperCase();
+}
+
+function SoccerverseAccountLink({ username, compact = false }: { username: string; compact?: boolean }) {
+  return (
+    <a
+      className={compact ? "soccerverse-account-link compact" : "soccerverse-account-link"}
+      href={soccerverseProfileUrl(username)}
+      target="_blank"
+      rel="noreferrer"
+      aria-label={`Open ${username} on Soccerverse`}
+    >
+      @{username}<ArrowSquareOut size={compact ? 12 : 15} weight="bold" />
+    </a>
+  );
 }
 
 type AuthMode = "sign-in" | "sign-up" | "forgot-password" | "reset-password" | "check-email" | "verified" | "verification-error" | "reset-error" | "reset-success";
@@ -771,7 +786,7 @@ function SpotlightView({ spotlight, prediction, setPrediction, submitted, saving
 
       <section className="week-leaders">
         <div className="leaders-copy"><span>Season table</span><h2>The season never stops.</h2><p>Weekly precision builds a reputation across every league.</p><button className="text-link" onClick={onLeaderboard}>View full leaderboard <ArrowRight size={18} /></button></div>
-        <div className="leader-podium">{leaders.length ? leaders.slice(0, 3).map((entry) => <div key={`${entry.rank}:${entry.displayName}`} className="mini-rank"><span>{String(entry.rank).padStart(2, "0")}</span><div><strong>{entry.displayName}</strong><small>{entry.played} played · {entry.exactScores} exact</small></div><b>{entry.points}<small> pts</small></b></div>) : <SeasonEmpty compact title="The table is waiting" description="The first settled spotlight will reveal the opening standings." />}</div>
+        <div className="leader-podium">{leaders.length ? leaders.slice(0, 3).map((entry) => <div key={`${entry.rank}:${entry.displayName}`} className="mini-rank"><span>{String(entry.rank).padStart(2, "0")}</span><div><strong>{entry.displayName}</strong><small>{entry.played} played · {entry.exactScores} exact</small>{entry.soccerverseUsername && <SoccerverseAccountLink username={entry.soccerverseUsername} compact />}</div><b>{entry.points}<small> pts</small></b></div>) : <SeasonEmpty compact title="The table is waiting" description="The first settled spotlight will reveal the opening standings." />}</div>
       </section>
     </>
   );
@@ -1043,7 +1058,7 @@ function LeaderboardView({ leaders, loading }: { leaders: SeasonPayload["leaderb
     <section className="inner-page">
       <div className="page-intro"><div><Trophy size={25} weight="fill" /><span>Season 1 standings</span></div><h1>Every call<br />counts.</h1><p>Accuracy creates distance. Consistency keeps you under the lights.</p></div>
       <div className="leaderboard-layout">
-        <div className="leaderboard-table"><div className="table-header"><span>Rank</span><span>Player</span><span>Exact scores</span><span>Points</span></div>{leaders.map((entry) => <div className={entry.isViewer ? "table-row current" : "table-row"} key={`${entry.rank}:${entry.displayName}`}><span className="rank-number">{String(entry.rank).padStart(2, "0")}</span><span className="player-name"><i>{initials(entry.displayName)}</i><b>{entry.displayName}</b><small>{entry.played} played · {entry.badges} badges</small></span><span>{entry.exactScores}</span><strong>{entry.points}</strong></div>)}{!leaders.length && <SeasonEmpty title={loading ? "Loading the standings" : "No points awarded yet"} description={loading ? "Collecting the current season." : "The leaderboard starts as soon as the first spotlight is settled."} />}</div>
+        <div className="leaderboard-table"><div className="table-header"><span>Rank</span><span>Player</span><span>Exact scores</span><span>Points</span></div>{leaders.map((entry) => <div className={entry.isViewer ? "table-row current" : "table-row"} key={`${entry.rank}:${entry.displayName}`}><span className="rank-number">{String(entry.rank).padStart(2, "0")}</span><span className="player-name"><i>{initials(entry.displayName)}</i><b>{entry.displayName}</b><small>{entry.played} played · {entry.badges} badges</small>{entry.soccerverseUsername && <SoccerverseAccountLink username={entry.soccerverseUsername} compact />}</span><span>{entry.exactScores}</span><strong>{entry.points}</strong></div>)}{!leaders.length && <SeasonEmpty title={loading ? "Loading the standings" : "No points awarded yet"} description={loading ? "Collecting the current season." : "The leaderboard starts as soon as the first spotlight is settled."} />}</div>
         <aside className="season-card"><Medal size={34} weight="fill" /><h2>Season honours</h2><p>Accuracy decides the table. Exploration, timing and bold calls build a separate badge collection.</p><div><span>Current campaign</span><strong>Season 1</strong></div></aside>
       </div>
     </section>
@@ -1078,12 +1093,61 @@ function historyBreakdown(score: NonNullable<SeasonViewer["history"][number]["sc
   ] as const;
 }
 
-function ProfileView({ user, viewer, loading, onAchievements, onSignIn }: { user: { name: string; email: string; image?: string | null } | null; viewer: SeasonViewer | null; loading: boolean; onAchievements: () => void; onSignIn: () => void }) {
+function ProfileView({ user, viewer, loading, onAchievements, onProfileUpdated, onSignIn }: { user: { name: string; email: string; image?: string | null } | null; viewer: SeasonViewer | null; loading: boolean; onAchievements: () => void; onProfileUpdated: () => Promise<void>; onSignIn: () => void }) {
+  const [soccerverseUsername, setSoccerverseUsername] = useState(viewer?.soccerverseUsername || "");
+  const [savedSoccerverseUsername, setSavedSoccerverseUsername] = useState(viewer?.soccerverseUsername || "");
+  const [profileSaving, setProfileSaving] = useState(false);
+  const [profileNotice, setProfileNotice] = useState("");
+  const [profileError, setProfileError] = useState("");
+
+  async function saveSoccerverseAccount(value: string) {
+    setProfileSaving(true);
+    setProfileNotice("");
+    setProfileError("");
+    try {
+      const response = await fetch("/api/profile", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ soccerverseUsername: value }),
+      });
+      const payload = await response.json() as { soccerverseUsername?: string | null; error?: string };
+      if (!response.ok) throw new Error(payload.error || "Soccerverse account could not be saved");
+      const canonicalUsername = payload.soccerverseUsername || "";
+      setSoccerverseUsername(canonicalUsername);
+      setSavedSoccerverseUsername(canonicalUsername);
+      setProfileNotice(canonicalUsername ? `Connected to @${canonicalUsername}.` : "Soccerverse account removed.");
+      await onProfileUpdated();
+    } catch (error) {
+      setProfileError(error instanceof Error ? error.message : "Soccerverse account could not be saved");
+    } finally {
+      setProfileSaving(false);
+    }
+  }
+
+  async function submitSoccerverseAccount(event: FormEvent) {
+    event.preventDefault();
+    await saveSoccerverseAccount(soccerverseUsername);
+  }
+
   if (!user) return <section className="inner-page signed-out-profile"><UserCircle size={72} weight="duotone" /><h1>Your season<br />starts here.</h1><p>Sign in to keep every prediction, point and badge together.</p><button onClick={onSignIn}><SignInIcon size={18} weight="bold" /> Sign in or create an account</button></section>;
   const stats = viewer?.stats || { points: 0, exactScores: 0, accuracy: 0, countries: 0, predictions: 0 };
   return (
     <section className="inner-page">
-      <div className="profile-hero"><div className="profile-avatar"><UserCircle size={68} weight="duotone" /></div><div><span>{viewer?.rank ? `Season rank #${viewer.rank}` : "Season 1 competitor"}</span><h1>{user.name}</h1><p>{user.email}</p></div><div className="profile-actions"><button onClick={onAchievements}>View achievements <ArrowRight size={18} /></button><button className="sign-out-button" onClick={() => authClient.signOut()}><SignOut size={18} /> Sign out</button></div></div>
+      <div className="profile-hero"><div className="profile-avatar"><UserCircle size={68} weight="duotone" /></div><div><span>{viewer?.rank ? `Season rank #${viewer.rank}` : "Season 1 competitor"}</span><h1>{user.name}</h1><p>{user.email}</p>{savedSoccerverseUsername && <SoccerverseAccountLink username={savedSoccerverseUsername} />}</div><div className="profile-actions"><button onClick={onAchievements}>View achievements <ArrowRight size={18} /></button><button className="sign-out-button" onClick={() => authClient.signOut()}><SignOut size={18} /> Sign out</button></div></div>
+      <section className="profile-connection" aria-labelledby="soccerverse-account-title">
+        <div><SoccerBall size={28} weight="duotone" /><div><h2 id="soccerverse-account-title">Your Soccerverse account</h2><p>Add your in-game username so players can open your public Soccerverse profile from the leaderboard.</p></div></div>
+        <form onSubmit={submitSoccerverseAccount}>
+          <label htmlFor="soccerverse-username">Soccerverse username</label>
+          <div className="profile-connection-control">
+            <input id="soccerverse-username" value={soccerverseUsername} onChange={(event) => setSoccerverseUsername(event.target.value)} placeholder="For example: klo" autoComplete="off" disabled={profileSaving} />
+            <button type="submit" disabled={profileSaving}>{profileSaving ? "Checking..." : "Save account"}</button>
+            {savedSoccerverseUsername && <button className="remove-account" type="button" onClick={() => void saveSoccerverseAccount("")} disabled={profileSaving}>Remove</button>}
+          </div>
+          <small>You can also paste your Soccerverse profile URL. This public link never grants access to your game account.</small>
+          {profileNotice && <span className="profile-form-notice success" role="status">{profileNotice}</span>}
+          {profileError && <span className="profile-form-notice error" role="alert">{profileError}</span>}
+        </form>
+      </section>
       <div className="profile-stats"><div><strong>{stats.points}</strong><span>Season points</span></div><div><strong>{stats.exactScores}</strong><span>Exact scores</span></div><div><strong>{stats.accuracy}%</strong><span>Result accuracy</span></div><div><strong>{stats.countries}</strong><span>Countries explored</span></div></div>
       <div className="history-panel"><div className="history-heading"><h2>Prediction history</h2><span>{loading ? "Loading" : `${stats.predictions} prediction${stats.predictions === 1 ? "" : "s"}`}</span></div>{viewer?.history.map((item) => <article key={item.matchId}><span>{formatShortDate(item.kickoff * 1000)}</span><div className="history-match"><strong>{item.homeName} {item.result ? `${item.result.homeScore}-${item.result.awayScore}` : "vs"} {item.awayName}</strong><small>Your pick: {item.prediction.homeScore}-{item.prediction.awayScore} · {item.competitionName}</small>{item.score && <div className="history-breakdown">{historyBreakdown(item.score).map(([label, points]) => <i className={points ? "hit" : ""} key={label}>{label} +{points}</i>)}</div>}</div><small>{item.score ? "Settled" : item.result ? "Scoring" : "Pending result"}</small><b>{item.score ? `+${item.score.totalPoints}` : "-"}</b></article>)}{!loading && !viewer?.history.length && <SeasonEmpty title="No predictions yet" description="Your first locked spotlight will appear here immediately." />}</div>
     </section>
