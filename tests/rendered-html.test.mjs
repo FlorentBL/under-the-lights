@@ -85,6 +85,24 @@ test("uses live season data instead of demo standings and histories", async () =
   assert.match(schema, /participantBadges/);
 });
 
+test("ships private-safe public competitor pages", async () => {
+  const [page, app, seasonData] = await Promise.all([
+    readFile(new URL("../app/players/[id]/page.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../app/under-the-lights-app.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../lib/season-data.ts", import.meta.url), "utf8"),
+  ]);
+
+  assert.match(page, /Settled results/);
+  assert.match(page, /Achievements/);
+  assert.match(page, /View on Soccerverse/);
+  assert.match(page, /loadPublicPlayerProfile/);
+  assert.match(app, /View public profile/);
+  assert.match(app, /\/players\/\$\{encodeURIComponent\(entry\.participantId\)\}/);
+  assert.match(seasonData, /publicCompletedHistory\(history\)/);
+  assert.doesNotMatch(page, /email/i);
+  assert.doesNotMatch(page, /[—–]/);
+});
+
 test("protects predictions with Better Auth", async () => {
   const [predictionRoute, authRoute, providersRoute, authConfig, schema] = await Promise.all([
     readFile(new URL("../app/api/predictions/route.ts", import.meta.url), "utf8"),

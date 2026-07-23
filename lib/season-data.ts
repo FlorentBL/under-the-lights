@@ -1,4 +1,12 @@
-import { calculateBadgeProgress, type BadgeKey, type LeaderboardEntry, type SeasonHistoryItem, type SeasonPayload } from "@/lib/season";
+import {
+  calculateBadgeProgress,
+  publicCompletedHistory,
+  type BadgeKey,
+  type LeaderboardEntry,
+  type PublicPlayerProfile,
+  type SeasonHistoryItem,
+  type SeasonPayload,
+} from "@/lib/season";
 import type { GoalWindow } from "@/lib/scoring";
 
 function nullableNumber(value: unknown) {
@@ -91,6 +99,7 @@ async function loadLeaderboard(db: D1Database, viewerId?: string): Promise<Leade
     LIMIT 100`).all<Record<string, unknown>>();
 
   return (rows.results || []).map((row, index) => ({
+    participantId: String(row.participant_id),
     rank: index + 1,
     displayName: String(row.display_name),
     soccerverseUsername: row.soccerverse_username ? String(row.soccerverse_username) : null,
@@ -108,11 +117,13 @@ export async function loadSeason(db: D1Database, participantId?: string): Promis
   const leaderboard = await loadLeaderboard(db, participantId);
   if (!participantId) return { leaderboard, viewer: null };
 
-  const [history, earnedRows, profile] = await Promise.all([
+  const [history, earnedRows, profile, participant] = await Promise.all([
     loadParticipantHistory(db, participantId),
     db.prepare("SELECT badge_key, earned_at FROM participant_badges WHERE participant_id = ?")
       .bind(participantId).all<Record<string, unknown>>(),
     db.prepare("SELECT soccerverse_username FROM user_profiles WHERE user_id = ?")
+      .bind(participantId).first<Record<string, unknown>>(),
+    db.prepare("SELECT id FROM participants WHERE id = ?")
       .bind(participantId).first<Record<string, unknown>>(),
   ]);
   const earnedAt = Object.fromEntries((earnedRows.results || []).map((row) => [String(row.badge_key) as BadgeKey, Number(row.earned_at)]));
@@ -125,6 +136,7 @@ export async function loadSeason(db: D1Database, participantId?: string): Promis
   return {
     leaderboard,
     viewer: {
+      participantId: participant ? participantId : null,
       rank: leaderboard.find((entry) => entry.isViewer)?.rank || null,
       soccerverseUsername: profile?.soccerverse_username ? String(profile.soccerverse_username) : null,
       stats: {
@@ -139,5 +151,48 @@ export async function loadSeason(db: D1Database, participantId?: string): Promis
       history,
       badges,
     },
+  };
+}
+
+export async function loadPublicPlayerProfile(db: D1Database, participantId: string): Promise<PublicPlayerProfile | null> {
+  const participant = await db.prepare(`SELECT pt.id, pt.display_name, up.soccerverse_username
+    FROM participants pt
+    LEFT JOIN user_profiles up ON up.user_id = pt.id
+    WHERE pt.id = ?`).bind(participantId).first<Record<string, unknown>>();
+  if (!participant) return null;
+
+  const [history, earnedRows, leaderboard] = await Promise.all([
+    loadParticipantHistory(db, participantId),
+    db.prepare("SELECT badge_key, earned_at FROM participant_badges WHERE participant_id = ?")
+      .bind(participantId).all<Record<string, unknown>>(),
+    loadLeaderboard(db),
+  ]);
+  const completedHistory = publicCompletedHistory(history);
+  const earnedAt = Object.fromEntries((earnedRows.results || []).map((row) => [
+    String(row.badge_key) as BadgeKey,
+    Number(row.earned_at),
+  ]));
+  const badges = calculateBadgeProgress(completedHistory, earnedAt);
+  const unlockedBadges = badges.filter((badge) => badge.unlocked);
+  const points = completedHistory.reduce((total, item) => total + item.score!.totalPoints, 0);
+  const exactScores = completedHistory.filter((item) => item.score!.exactScorePoints > 0).length;
+  const correctOutcomes = completedHistory.filter((item) => item.score!.outcomePoints > 0).length;
+
+  return {
+    participantId: String(participant.id),
+    displayName: String(participant.display_name),
+    soccerverseUsername: participant.soccerverse_username ? String(participant.soccerverse_username) : null,
+    rank: leaderboard.find((entry) => entry.participantId === participantId)?.rank || null,
+    stats: {
+      points,
+      exactScores,
+      correctOutcomes,
+      played: completedHistory.length,
+      accuracy: completedHistory.length ? Math.round(correctOutcomes / completedHistory.length * 100) : 0,
+      countries: new Set(completedHistory.map((item) => item.countryCode)).size,
+      badges: unlockedBadges.length,
+    },
+    history: completedHistory,
+    badges,
   };
 }
