@@ -13,11 +13,13 @@ import {
   Crosshair,
   Database,
   DiscordLogo,
+  EnvelopeSimple,
   Fire,
   GlobeHemisphereWest,
   GithubLogo,
   Lightbulb,
   Lock,
+  Password,
   MagnifyingGlass,
   Medal,
   ShieldCheck,
@@ -40,6 +42,7 @@ import { GOAL_WINDOWS, MAX_PREDICTION_POINTS, NO_GOAL, type GoalWindow, type Sco
 import type { BadgeKey, SeasonPayload, SeasonViewer } from "@/lib/season";
 
 type View = "spotlight" | "how-it-works" | "leaderboard" | "achievements" | "project" | "profile";
+type AuthIntent = "sign-in" | "reset-password" | "verified" | "verification-error" | "reset-error";
 
 type Prediction = {
   homeScore: number;
@@ -160,6 +163,8 @@ export function UnderTheLightsApp() {
   const [view, setView] = useState<View>("spotlight");
   const [mobileOpen, setMobileOpen] = useState(false);
   const [authOpen, setAuthOpen] = useState(false);
+  const [authIntent, setAuthIntent] = useState<AuthIntent>("sign-in");
+  const [authToken, setAuthToken] = useState("");
   const [prediction, setPrediction] = useState<Prediction>({
     homeScore: 2,
     awayScore: 1,
@@ -176,6 +181,32 @@ export function UnderTheLightsApp() {
   const [season, setSeason] = useState<SeasonPayload>(emptySeason);
   const [seasonLoading, setSeasonLoading] = useState(true);
   const pendingSyncRef = useRef("");
+
+  useEffect(() => {
+    const parameters = new URLSearchParams(window.location.search);
+    const auth = parameters.get("auth");
+    const error = parameters.get("error");
+    const token = parameters.get("token") || "";
+    if (auth === "reset-password") {
+      queueMicrotask(() => {
+        setAuthIntent(error || !token ? "reset-error" : "reset-password");
+        setAuthToken(token);
+        setAuthOpen(true);
+      });
+    } else if (auth === "verified") {
+      queueMicrotask(() => {
+        setAuthIntent(error ? "verification-error" : "verified");
+        setAuthOpen(true);
+      });
+    }
+    if (auth) window.history.replaceState({}, "", `${window.location.pathname}${window.location.hash}`);
+  }, []);
+
+  const openAuth = useCallback(() => {
+    setAuthIntent("sign-in");
+    setAuthToken("");
+    setAuthOpen(true);
+  }, []);
 
   useEffect(() => {
     if (!session) return;
@@ -302,7 +333,7 @@ export function UnderTheLightsApp() {
         return;
       }
       setNotice("Sign in to lock your prediction for the season.");
-      setAuthOpen(true);
+      openAuth();
       return;
     }
     await savePrediction(prediction);
@@ -330,7 +361,7 @@ export function UnderTheLightsApp() {
               <span>{session.user.name}</span>
             </button>
           ) : (
-            <button className="sign-in-button" onClick={() => setAuthOpen(true)} disabled={sessionPending}>
+            <button className="sign-in-button" onClick={openAuth} disabled={sessionPending}>
               <SignInIcon size={17} weight="bold" /> Sign in
             </button>
           )}
@@ -358,12 +389,12 @@ export function UnderTheLightsApp() {
         )}
         {view === "how-it-works" && <HowItWorksView spotlight={spotlight} onPlay={() => navigate("spotlight")} />}
         {view === "leaderboard" && <LeaderboardView leaders={season.leaderboard} loading={seasonLoading} />}
-        {view === "achievements" && <AchievementsView viewer={season.viewer} user={session?.user ?? null} loading={seasonLoading} onSignIn={() => setAuthOpen(true)} />}
+        {view === "achievements" && <AchievementsView viewer={season.viewer} user={session?.user ?? null} loading={seasonLoading} onSignIn={openAuth} />}
         {view === "project" && <ProjectView onPlay={() => navigate("spotlight")} />}
-        {view === "profile" && <ProfileView user={session?.user ?? null} viewer={season.viewer} loading={seasonLoading} onAchievements={() => navigate("achievements")} onSignIn={() => setAuthOpen(true)} />}
+        {view === "profile" && <ProfileView user={session?.user ?? null} viewer={season.viewer} loading={seasonLoading} onAchievements={() => navigate("achievements")} onSignIn={openAuth} />}
       </main>
 
-      {authOpen && <AuthDialog onClose={() => setAuthOpen(false)} />}
+      {authOpen && <AuthDialog intent={authIntent} token={authToken} onClose={() => setAuthOpen(false)} />}
 
       <footer className="site-footer">
         <Image src="/logo.png" alt="Soccerverse Under the Lights" width={1774} height={887} />
@@ -378,35 +409,107 @@ function initials(name: string) {
   return name.split(/\s+/).map((part) => part[0]).join("").slice(0, 2).toUpperCase();
 }
 
-function AuthDialog({ onClose }: { onClose: () => void }) {
-  const [mode, setMode] = useState<"sign-in" | "sign-up">("sign-in");
+type AuthMode = "sign-in" | "sign-up" | "forgot-password" | "reset-password" | "check-email" | "verified" | "verification-error" | "reset-error" | "reset-success";
+
+function AuthDialog({ intent, token, onClose }: { intent: AuthIntent; token: string; onClose: () => void }) {
+  const [mode, setMode] = useState<AuthMode>(intent);
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [passwordConfirmation, setPasswordConfirmation] = useState("");
   const [pending, setPending] = useState(false);
   const [error, setError] = useState("");
-  const [discordEnabled, setDiscordEnabled] = useState(false);
+  const [emailPurpose, setEmailPurpose] = useState<"verification" | "reset">("verification");
+  const [providers, setProviders] = useState({ ready: false, discord: false, emailVerification: false, passwordReset: false });
 
   useEffect(() => {
     fetch("/api/auth-providers")
       .then((response) => response.json())
-      .then((providers) => setDiscordEnabled(Boolean((providers as { discord?: boolean }).discord)))
-      .catch(() => setDiscordEnabled(false));
+      .then((payload) => {
+        const next = payload as { discord?: boolean; emailVerification?: boolean; passwordReset?: boolean };
+        setProviders({
+          ready: true,
+          discord: Boolean(next.discord),
+          emailVerification: Boolean(next.emailVerification),
+          passwordReset: Boolean(next.passwordReset),
+        });
+      })
+      .catch(() => setProviders({ ready: true, discord: false, emailVerification: false, passwordReset: false }));
   }, []);
 
   async function submitEmail(event: FormEvent) {
     event.preventDefault();
     setPending(true);
     setError("");
+    const callbackURL = `${window.location.origin}/?auth=verified`;
     const result = mode === "sign-up"
-      ? await authClient.signUp.email({ name, email, password })
-      : await authClient.signIn.email({ email, password });
+      ? await authClient.signUp.email({ name, email, password, callbackURL })
+      : await authClient.signIn.email({ email, password, callbackURL });
     setPending(false);
     if (result.error) {
+      const authError = result.error as typeof result.error & { code?: string; status?: number };
+      if (authError.code === "EMAIL_NOT_VERIFIED"
+        || (authError.status === 403 && authError.message?.toLowerCase().includes("verif"))) {
+        setEmailPurpose("verification");
+        setMode("check-email");
+        return;
+      }
       setError(result.error.message || "Authentication failed");
       return;
     }
-    onClose();
+    if (mode === "sign-up" && providers.emailVerification) {
+      setEmailPurpose("verification");
+      setMode("check-email");
+    } else {
+      onClose();
+    }
+  }
+
+  async function requestPasswordReset(event: FormEvent) {
+    event.preventDefault();
+    setPending(true);
+    setError("");
+    const result = await authClient.requestPasswordReset({
+      email,
+      redirectTo: `${window.location.origin}/?auth=reset-password`,
+    });
+    setPending(false);
+    if (result.error) {
+      setError(result.error.message || "The reset email could not be sent");
+      return;
+    }
+    setEmailPurpose("reset");
+    setMode("check-email");
+  }
+
+  async function resetPassword(event: FormEvent) {
+    event.preventDefault();
+    setError("");
+    if (password !== passwordConfirmation) {
+      setError("Passwords do not match.");
+      return;
+    }
+    setPending(true);
+    const result = await authClient.resetPassword({ newPassword: password, token });
+    setPending(false);
+    if (result.error) {
+      setError(result.error.message || "This reset link is invalid or expired");
+      return;
+    }
+    setMode("reset-success");
+    setPassword("");
+    setPasswordConfirmation("");
+  }
+
+  async function resendVerification() {
+    setPending(true);
+    setError("");
+    const result = await authClient.sendVerificationEmail({
+      email,
+      callbackURL: `${window.location.origin}/?auth=verified`,
+    });
+    setPending(false);
+    if (result.error) setError(result.error.message || "The verification email could not be sent");
   }
 
   async function signInWithDiscord() {
@@ -419,6 +522,80 @@ function AuthDialog({ onClose }: { onClose: () => void }) {
     }
   }
 
+  if (mode === "verified" || mode === "reset-success") {
+    const verified = mode === "verified";
+    return (
+      <AuthShell onClose={onClose}>
+        <div className="auth-state-icon"><ShieldCheck size={38} weight="fill" /></div>
+        <span className="auth-kicker">{verified ? "Email verified" : "Password updated"}</span>
+        <h2 id="auth-title">{verified ? "You’re in." : "Back in the game."}</h2>
+        <p>{verified ? "Your email is confirmed and your Under the Lights account is ready." : "Your new password is active. All other sessions have been signed out for safety."}</p>
+        <button className="auth-submit" onClick={verified ? onClose : () => setMode("sign-in")}>{verified ? "Continue to the spotlight" : "Sign in with the new password"}</button>
+      </AuthShell>
+    );
+  }
+
+  if (mode === "verification-error" || mode === "reset-error") {
+    const verification = mode === "verification-error";
+    return (
+      <AuthShell onClose={onClose}>
+        <div className="auth-state-icon error"><X size={34} weight="bold" /></div>
+        <span className="auth-kicker">Link expired</span>
+        <h2 id="auth-title">Let’s try again.</h2>
+        <p>{verification ? "This verification link is invalid or has expired." : "This password-reset link is invalid or has expired."}</p>
+        <button className="auth-submit" onClick={() => setMode(verification ? "sign-in" : "forgot-password")}>{verification ? "Return to sign in" : "Request a new link"}</button>
+      </AuthShell>
+    );
+  }
+
+  if (mode === "check-email") {
+    return (
+      <AuthShell onClose={onClose}>
+        <div className="auth-state-icon"><EnvelopeSimple size={38} weight="duotone" /></div>
+        <span className="auth-kicker">Check your inbox</span>
+        <h2 id="auth-title">Link sent.</h2>
+        <p>If an account exists for <strong>{email}</strong>, the secure link is on its way. It expires in 60 minutes.</p>
+        {error && <p className="auth-error" role="alert">{error}</p>}
+        {emailPurpose === "verification" && providers.emailVerification && <button className="auth-submit" onClick={resendVerification} disabled={pending || !email}>{pending ? "Sending..." : "Resend verification email"}</button>}
+        <button className="auth-switch" onClick={() => setMode("sign-in")}>Return to sign in</button>
+      </AuthShell>
+    );
+  }
+
+  if (mode === "forgot-password") {
+    return (
+      <AuthShell onClose={onClose}>
+        <div className="auth-state-icon"><Password size={38} weight="duotone" /></div>
+        <span className="auth-kicker">Account recovery</span>
+        <h2 id="auth-title">Reset your password.</h2>
+        <p>Enter your email and we’ll send a secure, one-hour reset link.</p>
+        <form onSubmit={requestPasswordReset}>
+          <label><span>Email</span><input type="email" value={email} onChange={(event) => setEmail(event.target.value)} required autoComplete="email" autoFocus /></label>
+          {error && <p className="auth-error" role="alert">{error}</p>}
+          <button className="auth-submit" type="submit" disabled={pending}>{pending ? "Sending..." : "Send reset link"}</button>
+        </form>
+        <button className="auth-switch" onClick={() => setMode("sign-in")}>Return to sign in</button>
+      </AuthShell>
+    );
+  }
+
+  if (mode === "reset-password") {
+    return (
+      <AuthShell onClose={onClose}>
+        <div className="auth-state-icon"><Password size={38} weight="duotone" /></div>
+        <span className="auth-kicker">Secure reset</span>
+        <h2 id="auth-title">Choose a new password.</h2>
+        <p>Use at least eight characters. Your other sessions will be closed after the reset.</p>
+        <form onSubmit={resetPassword}>
+          <label><span>New password</span><input type="password" value={password} onChange={(event) => setPassword(event.target.value)} required minLength={8} maxLength={128} autoComplete="new-password" autoFocus /></label>
+          <label><span>Confirm password</span><input type="password" value={passwordConfirmation} onChange={(event) => setPasswordConfirmation(event.target.value)} required minLength={8} maxLength={128} autoComplete="new-password" /></label>
+          {error && <p className="auth-error" role="alert">{error}</p>}
+          <button className="auth-submit" type="submit" disabled={pending}>{pending ? "Updating..." : "Set new password"}</button>
+        </form>
+      </AuthShell>
+    );
+  }
+
   return (
     <div className="auth-backdrop" role="presentation" onMouseDown={(event) => event.target === event.currentTarget && onClose()}>
       <section className="auth-dialog" role="dialog" aria-modal="true" aria-labelledby="auth-title">
@@ -426,8 +603,8 @@ function AuthDialog({ onClose }: { onClose: () => void }) {
         <span className="auth-kicker">Enter the competition</span>
         <h2 id="auth-title">{mode === "sign-in" ? "Welcome back." : "Join the season."}</h2>
         <p>Your predictions, points and badges stay attached to one identity.</p>
-        <button className="discord-button" onClick={signInWithDiscord} disabled={pending || !discordEnabled}>
-          <DiscordLogo size={21} weight="fill" /> {discordEnabled ? "Continue with Discord" : "Discord setup pending"}
+        <button className="discord-button" onClick={signInWithDiscord} disabled={pending || !providers.discord}>
+          <DiscordLogo size={21} weight="fill" /> {providers.discord ? "Continue with Discord" : "Discord setup pending"}
         </button>
         <div className="auth-divider"><span>or use email</span></div>
         <form onSubmit={submitEmail}>
@@ -435,11 +612,23 @@ function AuthDialog({ onClose }: { onClose: () => void }) {
           <label><span>Email</span><input type="email" value={email} onChange={(event) => setEmail(event.target.value)} required autoComplete="email" /></label>
           <label><span>Password</span><input type="password" value={password} onChange={(event) => setPassword(event.target.value)} required minLength={8} autoComplete={mode === "sign-in" ? "current-password" : "new-password"} /></label>
           {error && <p className="auth-error" role="alert">{error}</p>}
-          <button className="auth-submit" type="submit" disabled={pending}>{pending ? "Please wait..." : mode === "sign-in" ? "Sign in" : "Create account"}</button>
+          <button className="auth-submit" type="submit" disabled={pending || !providers.ready}>{pending || !providers.ready ? "Please wait..." : mode === "sign-in" ? "Sign in" : "Create account"}</button>
         </form>
+        {mode === "sign-in" && providers.passwordReset && <button className="auth-forgot" onClick={() => { setMode("forgot-password"); setError(""); }}>Forgot your password?</button>}
         <button className="auth-switch" onClick={() => { setMode(mode === "sign-in" ? "sign-up" : "sign-in"); setError(""); }}>
           {mode === "sign-in" ? "New under the lights? Create an account" : "Already competing? Sign in"}
         </button>
+      </section>
+    </div>
+  );
+}
+
+function AuthShell({ onClose, children }: { onClose: () => void; children: React.ReactNode }) {
+  return (
+    <div className="auth-backdrop" role="presentation" onMouseDown={(event) => event.target === event.currentTarget && onClose()}>
+      <section className="auth-dialog auth-state" role="dialog" aria-modal="true" aria-labelledby="auth-title">
+        <button className="auth-close" onClick={onClose} aria-label="Close authentication"><X size={20} /></button>
+        {children}
       </section>
     </div>
   );

@@ -23,6 +23,11 @@ The private control room lives at `/admin`. Access is restricted to authenticate
 ADMIN_EMAILS=first@example.com,second@example.com
 ```
 
+Email verification and password recovery use Resend. Set `RESEND_API_KEY` and a verified
+sender such as `AUTH_EMAIL_FROM=Under the Lights <auth@example.com>` as Worker secrets.
+`AUTH_EMAIL_REPLY_TO` is optional. Until both required values exist, existing email/password
+authentication remains available without verification and password recovery stays hidden.
+
 From the control room, an administrator can scan the next Soccerverse weekend, inspect the ranked shortlist, edit the match story and publish the selected fixture. The public spotlight updates from the published D1 record.
 
 Cloudflare launches the radar every Monday at 07:00 UTC. The control-room action can safely generate a fresh run whenever the editorial team wants to recalculate the shortlist.
