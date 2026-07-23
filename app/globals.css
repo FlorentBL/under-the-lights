@@ -439,10 +439,14 @@ select {
 .mini-rank { min-height: 94px; display: grid; grid-template-columns: 50px 1fr auto; gap: 18px; align-items: center; border-bottom: 1px solid var(--line); transition: padding .3s cubic-bezier(.16,1,.3,1), background .3s ease; }
 .mini-rank:hover { padding-inline: 14px; background: linear-gradient(90deg, rgba(217,172,67,.07), transparent 72%); }
 .mini-rank > span { color: var(--gold-bright); font-family: var(--font-geist-mono); font-size: 18px; font-weight: 800; }
-.mini-rank div { display: flex; align-items: baseline; gap: 12px; }
+.mini-rank div { display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px 12px; }
 .mini-rank div strong { font-size: 17px; }
 .mini-rank small { color: var(--muted); font-size: 10px; }
 .mini-rank > b { font-family: var(--font-geist-mono); font-size: 25px; }
+.soccerverse-account-link { width: fit-content; display: inline-flex; align-items: center; gap: 5px; margin-top: 7px; color: var(--gold-bright); font-family: var(--font-geist-mono); font-size: 11px; font-weight: 750; text-decoration: none; }
+.soccerverse-account-link:hover { color: #f8d77f; }
+.soccerverse-account-link:focus-visible { outline: 2px solid var(--gold-bright); outline-offset: 3px; }
+.soccerverse-account-link.compact { margin-top: 0; font-size: 9px; }
 .season-empty { min-height: 220px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px; padding: 34px; color: var(--muted); text-align: center; }
 .season-empty > svg { margin-bottom: 5px; color: var(--gold); }
 .season-empty > strong { color: var(--ink); font-size: 16px; }
@@ -463,9 +467,10 @@ select {
 .table-row:hover { background: rgba(255,255,255,.025); padding-left: 28px; }
 .table-row.current { background: rgba(217,172,67,.08); box-shadow: inset 3px 0 0 var(--gold); }
 .rank-number { color: var(--muted); font-family: var(--font-geist-mono); font-size: 12px; font-weight: 760; }
-.player-name { display: grid; grid-template-columns: 39px auto 1fr; align-items: center; gap: 11px; }
+.player-name { display: grid; grid-template-columns: 39px auto 1fr; align-items: center; gap: 3px 11px; }
 .player-name i { width: 39px; height: 39px; display: grid; place-items: center; border-radius: 10px; background: var(--surface-3); color: var(--gold-bright); font-style: normal; font-size: 10px; font-weight: 850; }
-.player-name small { color: var(--muted); font-size: 10px; }
+.player-name small { grid-column: 2; color: var(--muted); font-size: 10px; }
+.player-name .soccerverse-account-link { grid-column: 3; grid-row: 2; }
 .table-row > strong { font-family: var(--font-geist-mono); font-size: 19px; }
 .season-card { position: relative; overflow: hidden; padding: 34px; border: 1px solid rgba(217,172,67,.23); border-radius: var(--radius); background: linear-gradient(145deg, rgba(217,172,67,.07), transparent 42%), var(--surface); box-shadow: 0 25px 80px rgba(0,0,0,.2); }
 .season-card::after { content: ""; position: absolute; right: -70px; top: -70px; width: 170px; height: 170px; border-radius: 50%; border: 1px solid rgba(217,172,67,.14); box-shadow: 0 0 0 24px rgba(217,172,67,.02); }
@@ -504,6 +509,25 @@ select {
 .profile-actions { display: flex; gap: 8px; }
 .profile-hero button { min-height: 46px; }
 .profile-hero .sign-out-button { border: 1px solid var(--line-strong); background: transparent; color: #c8cac5; box-shadow: none; }
+.profile-connection { display: grid; grid-template-columns: minmax(280px, .9fr) minmax(390px, 1.1fr); gap: 38px; align-items: center; margin-bottom: 24px; padding: 28px 32px; border: 1px solid var(--line); border-radius: var(--radius); background: var(--surface); }
+.profile-connection > div { display: grid; grid-template-columns: 42px 1fr; gap: 15px; align-items: start; }
+.profile-connection > div > svg { color: var(--gold-bright); }
+.profile-connection h2 { margin: 0 0 7px; font-size: 20px; letter-spacing: -.03em; }
+.profile-connection p { max-width: 520px; margin: 0; color: var(--muted); font-size: 12px; line-height: 1.55; }
+.profile-connection form { min-width: 0; }
+.profile-connection label { display: block; margin-bottom: 7px; color: #c8cac5; font-size: 10px; font-weight: 800; }
+.profile-connection-control { display: grid; grid-template-columns: minmax(0, 1fr) auto auto; gap: 8px; }
+.profile-connection input { min-width: 0; min-height: 44px; padding: 0 13px; border: 1px solid var(--line-strong); border-radius: 9px; outline: 0; background: #0d0f0f; color: var(--ink); font-size: 12px; }
+.profile-connection input::placeholder { color: #777b77; }
+.profile-connection input:focus { border-color: rgba(225,184,82,.72); box-shadow: 0 0 0 3px rgba(225,184,82,.08); }
+.profile-connection button { min-height: 44px; padding: 0 16px; border: 0; border-radius: 9px; background: var(--gold-bright); color: #17140c; font-size: 10px; font-weight: 900; white-space: nowrap; cursor: pointer; }
+.profile-connection button.remove-account { border: 1px solid var(--line-strong); background: transparent; color: #b9bcb7; }
+.profile-connection button:active { transform: translateY(1px); }
+.profile-connection button:disabled, .profile-connection input:disabled { opacity: .58; cursor: wait; }
+.profile-connection form > small { display: block; margin-top: 8px; color: #858a85; font-size: 9px; line-height: 1.45; }
+.profile-form-notice { display: block; margin-top: 8px; font-size: 10px; }
+.profile-form-notice.success { color: #9ad8aa; }
+.profile-form-notice.error { color: #ffb0a5; }
 .signed-out-profile { display: flex; flex-direction: column; align-items: flex-start; justify-content: center; }
 .signed-out-profile > svg { color: var(--gold); }
 .signed-out-profile h1 { max-width: 800px; }
@@ -747,6 +771,7 @@ select {
   .profile-hero { grid-template-columns: auto 1fr; padding: 24px; }
   .profile-actions { grid-column: 1 / -1; flex-direction: column; }
   .profile-actions button { width: 100%; }
+  .profile-connection { grid-template-columns: 1fr; gap: 24px; padding: 24px; }
   .table-header { display: none; }
   .table-row { grid-template-columns: 40px 1fr 54px; padding: 14px; }
   .table-row > span:nth-child(3) { display: none; }
@@ -806,6 +831,8 @@ select {
   .badge-icon { width: 62px; height: 62px; }
   .badge-card > small { grid-column: 1 / -1; }
   .profile-stats { grid-template-columns: 1fr 1fr; }
+  .profile-connection-control { grid-template-columns: 1fr; }
+  .profile-connection button { width: 100%; }
   .guide-hero-copy button { width: 100%; padding: 10px 16px; white-space: normal; }
   .flow-track { grid-template-columns: 1fr; }
   .flow-track article { min-height: 190px; border-right: 0; }
@@ -1052,6 +1079,8 @@ select {
 .user-identity strong, .user-identity small { display: block; }
 .user-identity strong { color: var(--ink); font-size: 12px; }
 .user-identity small { max-width: 260px; margin-top: 4px; overflow: hidden; color: #737773; font-size: 9px; text-overflow: ellipsis; }
+.user-identity a { display: inline-flex; align-items: center; gap: 4px; margin-top: 5px; color: var(--gold-bright); font-family: var(--font-geist-mono); font-size: 9px; font-weight: 750; text-decoration: none; }
+.user-identity a:hover { color: #f8d77f; }
 .provider-list { display: flex; gap: 5px; }
 .provider-list span, .access-level { display: inline-flex; align-items: center; min-height: 25px; padding: 0 8px; border: 1px solid var(--line-strong); border-radius: 7px; background: #0d0f0f; color: #b0b3ae; font-size: 9px; font-weight: 750; }
 .access-level.admin { border-color: rgba(217,172,67,.28); background: rgba(217,172,67,.07); color: var(--gold-bright); }

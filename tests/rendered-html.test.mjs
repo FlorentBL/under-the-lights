@@ -137,7 +137,7 @@ test("exposes the participant registry only to administrators", async () => {
   assert.match(usersRoute, /You cannot remove your own administrator access/);
   assert.doesNotMatch(usersRoute, /access_token|refresh_token|password/);
   assert.match(adminPanel, /Participant registry/);
-  assert.match(adminPanel, /Search name, email or provider/);
+  assert.match(adminPanel, /Search name, Soccerverse or email/);
   assert.match(adminPanel, /Make admin/);
   assert.match(adminPanel, /Remove admin/);
   assert.match(adminAuth, /getAdminRole/);
@@ -181,4 +181,24 @@ test("requires two recently active Soccerverse managers in the radar", async () 
   assert.match(publishRoute, /no longer has two active managers/);
   assert.match(admin, /Only fixtures with two active managers/);
   assert.match(app, /made a Soccerverse move within the last 14 days/);
+});
+
+test("links Under the Lights players to their Soccerverse profiles", async () => {
+  const [app, profileRoute, seasonData, adminUsers, schema, migration] = await Promise.all([
+    readFile(new URL("../app/under-the-lights-app.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../app/api/profile/route.ts", import.meta.url), "utf8"),
+    readFile(new URL("../lib/season-data.ts", import.meta.url), "utf8"),
+    readFile(new URL("../app/api/admin/users/route.ts", import.meta.url), "utf8"),
+    readFile(new URL("../db/schema.ts", import.meta.url), "utf8"),
+    readFile(new URL("../drizzle/0007_soccerverse_profiles.sql", import.meta.url), "utf8"),
+  ]);
+
+  assert.match(app, /Your Soccerverse account/);
+  assert.match(app, /SoccerverseAccountLink/);
+  assert.match(profileRoute, /auth\.api\.getSession/);
+  assert.match(profileRoute, /resolveSoccerverseUsername/);
+  assert.match(seasonData, /LEFT JOIN user_profiles/);
+  assert.match(adminUsers, /soccerverse_username/);
+  assert.match(schema, /sqliteTable\("user_profiles"/);
+  assert.match(migration, /CREATE TABLE `user_profiles`/);
 });

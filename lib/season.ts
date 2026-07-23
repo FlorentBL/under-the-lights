@@ -43,6 +43,7 @@ export type BadgeProgress = typeof BADGE_DEFINITIONS[number] & {
 export type LeaderboardEntry = {
   rank: number;
   displayName: string;
+  soccerverseUsername: string | null;
   points: number;
   exactScores: number;
   correctOutcomes: number;
@@ -54,6 +55,7 @@ export type LeaderboardEntry = {
 
 export type SeasonViewer = {
   rank: number | null;
+  soccerverseUsername: string | null;
   stats: {
     points: number;
     exactScores: number;

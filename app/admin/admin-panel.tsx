@@ -3,6 +3,7 @@
 
 import {
   ArrowLeft,
+  ArrowSquareOut,
   ArrowsClockwise,
   Broadcast,
   CalendarDots,
@@ -21,6 +22,7 @@ import {
 import Image from "next/image";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { buildEditorialDraft, type EditorialTone } from "@/lib/editorial-story";
+import { soccerverseProfileUrl } from "@/lib/soccerverse-profile";
 
 type Candidate = {
   id: string;
@@ -91,6 +93,7 @@ type AdminUser = {
   role: "admin" | "player";
   roleSource: "configured" | "delegated" | null;
   isCurrentUser: boolean;
+  soccerverseUsername: string | null;
 };
 
 type UsersPayload = {
@@ -519,7 +522,7 @@ function UsersView() {
     const needle = query.trim().toLowerCase();
     if (!needle) return payload?.users || [];
     return (payload?.users || []).filter((user) =>
-      `${user.name} ${user.email} ${user.providers.join(" ")}`.toLowerCase().includes(needle),
+      `${user.name} ${user.email} ${user.soccerverseUsername || ""} ${user.providers.join(" ")}`.toLowerCase().includes(needle),
     );
   }, [payload, query]);
 
@@ -568,7 +571,7 @@ function UsersView() {
           <label className="user-search">
             <MagnifyingGlass size={17} />
             <span className="sr-only">Search participants</span>
-            <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search name, email or provider" />
+            <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search name, Soccerverse or email" />
           </label>
         </header>
 
@@ -582,7 +585,7 @@ function UsersView() {
               <tbody>
                 {visibleUsers.map((user) => (
                   <tr key={user.id}>
-                    <td data-label="Participant"><div className="user-identity"><span>{initials(user.name)}</span><div><strong>{user.name}</strong><small>{user.email}{user.emailVerified ? " / Verified" : ""}</small></div></div></td>
+                    <td data-label="Participant"><div className="user-identity"><span>{initials(user.name)}</span><div><strong>{user.name}</strong><small>{user.email}{user.emailVerified ? " / Verified" : ""}</small>{user.soccerverseUsername && <a href={soccerverseProfileUrl(user.soccerverseUsername)} target="_blank" rel="noreferrer">@{user.soccerverseUsername}<ArrowSquareOut size={11} weight="bold" /></a>}</div></div></td>
                     <td data-label="Sign-in"><div className="provider-list">{user.providers.map((provider) => <span key={provider}>{providerLabel(provider)}</span>)}</div></td>
                     <td data-label="Joined"><time dateTime={new Date(user.createdAt).toISOString()}>{memberDate(user.createdAt)}</time></td>
                     <td data-label="Last active"><time dateTime={new Date(user.lastActiveAt).toISOString()}>{relativeActivity(user.lastActiveAt)}</time></td>
@@ -614,7 +617,7 @@ function UsersView() {
             </table>
           </div>
         ) : (
-          <div className="users-empty"><MagnifyingGlass size={30} /><strong>No participant found</strong><span>Try another name, email or sign-in provider.</span></div>
+          <div className="users-empty"><MagnifyingGlass size={30} /><strong>No participant found</strong><span>Try another name, Soccerverse account or email.</span></div>
         )}
         <footer className="users-registry-foot"><span>{visibleUsers.length} of {payload.summary.total} participants</span><span>Up to 500 newest accounts</span></footer>
       </section>

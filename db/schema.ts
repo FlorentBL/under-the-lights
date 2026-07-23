@@ -55,6 +55,13 @@ export const adminUsers = sqliteTable("admin_users", {
   createdAt: integer("created_at").notNull(),
 }, (table) => [index("admin_users_created_at_idx").on(table.createdAt)]);
 
+export const userProfiles = sqliteTable("user_profiles", {
+  userId: text("user_id").primaryKey().references(() => user.id, { onDelete: "cascade" }),
+  soccerverseUsername: text("soccerverse_username").notNull(),
+  createdAt: integer("created_at").notNull(),
+  updatedAt: integer("updated_at").notNull(),
+}, (table) => [index("user_profiles_soccerverse_username_idx").on(table.soccerverseUsername)]);
+
 export const participants = sqliteTable("participants", {
   id: text("id").primaryKey(),
   displayName: text("display_name").notNull(),
