@@ -41,6 +41,7 @@ export type BadgeProgress = typeof BADGE_DEFINITIONS[number] & {
 };
 
 export type LeaderboardEntry = {
+  participantId: string;
   rank: number;
   displayName: string;
   soccerverseUsername: string | null;
@@ -54,6 +55,7 @@ export type LeaderboardEntry = {
 };
 
 export type SeasonViewer = {
+  participantId: string | null;
   rank: number | null;
   soccerverseUsername: string | null;
   stats: {
@@ -69,10 +71,32 @@ export type SeasonViewer = {
   badges: BadgeProgress[];
 };
 
+export type PublicPlayerProfile = {
+  participantId: string;
+  displayName: string;
+  soccerverseUsername: string | null;
+  rank: number | null;
+  stats: {
+    points: number;
+    exactScores: number;
+    correctOutcomes: number;
+    played: number;
+    accuracy: number;
+    countries: number;
+    badges: number;
+  };
+  history: SeasonHistoryItem[];
+  badges: BadgeProgress[];
+};
+
 export type SeasonPayload = {
   leaderboard: LeaderboardEntry[];
   viewer: SeasonViewer | null;
 };
+
+export function publicCompletedHistory(history: SeasonHistoryItem[]) {
+  return history.filter((item) => item.result !== null && item.score !== null);
+}
 
 function matchOutcome(homeScore: number, awayScore: number) {
   return Math.sign(homeScore - awayScore);

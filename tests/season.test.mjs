@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { calculateBadgeProgress } from "../lib/season.ts";
+import { calculateBadgeProgress, publicCompletedHistory } from "../lib/season.ts";
 
 function historyItem(overrides = {}) {
   return {
@@ -49,4 +49,12 @@ test("a missed result breaks the On Fire streak and pending games do not", () =>
   const fire = calculateBadgeProgress([...correct, missed, pending, after]).find((badge) => badge.key === "on-fire");
   assert.equal(fire?.progress, 4);
   assert.equal(fire?.unlocked, false);
+});
+
+test("public history never exposes pending or unscored predictions", () => {
+  const settled = historyItem({ matchId: "settled" });
+  const pending = historyItem({ matchId: "pending", result: null, score: null });
+  const awaitingScore = historyItem({ matchId: "awaiting-score", score: null });
+
+  assert.deepEqual(publicCompletedHistory([pending, awaitingScore, settled]).map((item) => item.matchId), ["settled"]);
 });
