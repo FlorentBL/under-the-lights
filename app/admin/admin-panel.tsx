@@ -70,7 +70,7 @@ type Overview = {
   };
 };
 
-type AdminView = "radar" | "users";
+type AdminView = "radar" | "operations" | "users";
 
 const storyDirections: { id: EditorialTone; label: string; description: string }[] = [
   { id: "dramatic", label: "Dramatic", description: "Stakes and tension" },
@@ -101,6 +101,42 @@ type UsersPayload = {
     verified: number;
     predictors: number;
   };
+};
+
+type SettlementCockpit = {
+  matchId: string;
+  fixtureId: number;
+  kickoff: number;
+  homeName: string;
+  awayName: string;
+  competitionName: string;
+  playerCount: number;
+  predictionCount: number;
+  scoreCount: number;
+  status: "open" | "waiting" | "result_received" | "scored";
+  alert: string | null;
+  nextCheckAt: number | null;
+  result: null | {
+    homeScore: number;
+    awayScore: number;
+    firstScorer: string;
+    firstScorerName: string | null;
+    firstGoalMinute: number | null;
+    goalWindow: string;
+    firstTeam: string;
+    settledAt: number;
+  };
+  checks: {
+    id: string;
+    source: string;
+    status: string;
+    resultFound: boolean;
+    predictionsTotal: number;
+    predictionsScored: number;
+    error: string | null;
+    checkedAt: number;
+    completedAt: number | null;
+  }[];
 };
 
 const dateTime = new Intl.DateTimeFormat("en-GB", {
@@ -164,6 +200,11 @@ export function AdminPanel() {
   }, [applyEditorialDraft]);
 
   const selected = useMemo(() => data?.candidates.find((candidate) => candidate.id === selectedId) || null, [data, selectedId]);
+  const viewCopy = adminView === "radar"
+    ? { kicker: "Editorial control room", title: "Choose the match that matters." }
+    : adminView === "operations"
+      ? { kicker: "Settlement control", title: "Follow the final whistle." }
+      : { kicker: "Community registry", title: "Track every player." };
 
   function chooseCandidate(candidate: Candidate) {
     setSelectedId(candidate.id);
@@ -223,7 +264,7 @@ export function AdminPanel() {
       <aside className="admin-sidebar">
         <Image src="/logo.png" alt="Under the Lights" width={1774} height={887} priority />
         <button className={adminView === "radar" ? "admin-nav-item active" : "admin-nav-item"} onClick={() => setAdminView("radar")} aria-label="Spotlight radar"><Crosshair size={19} weight="bold" /><span>Spotlight radar</span></button>
-        <div className="admin-nav-item soon"><Ranking size={19} /><span>Scoring rules</span><small>Soon</small></div>
+        <button className={adminView === "operations" ? "admin-nav-item active" : "admin-nav-item"} onClick={() => setAdminView("operations")} aria-label="Match operations"><Ranking size={19} weight="bold" /><span>Match operations</span></button>
         <button className={adminView === "users" ? "admin-nav-item active" : "admin-nav-item"} onClick={() => setAdminView("users")} aria-label="Participants"><UsersThree size={19} weight="bold" /><span>Participants</span></button>
         <div className="admin-sidebar-foot">
           <span>{initials(data.admin.name)}</span>
@@ -233,7 +274,7 @@ export function AdminPanel() {
 
       <main className="admin-main">
         <header className="admin-topbar">
-          <div><p>{adminView === "radar" ? "Editorial control room" : "Community registry"}</p><h1>{adminView === "radar" ? "Choose the match that matters." : "Track every player."}</h1></div>
+          <div><p>{viewCopy.kicker}</p><h1>{viewCopy.title}</h1></div>
           <div className="admin-top-actions">
             <a href="/"><ArrowLeft size={17} /> Public site</a>
             {adminView === "radar" && <button onClick={runRadar} disabled={running}>
@@ -245,7 +286,7 @@ export function AdminPanel() {
 
         {error && <div className="admin-alert" role="alert"><WarningCircle size={20} /><span>{error}</span></div>}
 
-        {adminView === "users" ? <UsersView /> : <>
+        {adminView === "users" ? <UsersView /> : adminView === "operations" ? <SettlementView /> : <>
         <section className="admin-metrics" aria-label="Radar summary">
           <Metric icon={CalendarDots} label="Target weekend" value={data.run?.weekKey ? formatWeek(data.run.weekKey) : "Not calculated"} />
           <Metric icon={SoccerBall} label="Fixtures screened" value={String(data.run?.fixturesScanned || 0)} />
@@ -340,6 +381,113 @@ export function AdminPanel() {
         </>}
       </main>
     </div>
+  );
+}
+
+function SettlementView() {
+  const [cockpit, setCockpit] = useState<SettlementCockpit | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [checking, setChecking] = useState(false);
+  const [error, setError] = useState("");
+
+  const loadCockpit = useCallback(async () => {
+    const response = await fetch("/api/admin/settlement", { cache: "no-store" });
+    const payload = await response.json() as { cockpit?: SettlementCockpit | null; error?: string };
+    if (!response.ok) throw new Error(payload.error || "Settlement cockpit unavailable");
+    setCockpit(payload.cockpit || null);
+  }, []);
+
+  useEffect(() => {
+    let active = true;
+    queueMicrotask(() => {
+      void loadCockpit()
+        .catch((cause) => active && setError(cause instanceof Error ? cause.message : "Settlement cockpit unavailable"))
+        .finally(() => active && setLoading(false));
+    });
+    const interval = window.setInterval(() => {
+      void loadCockpit().catch(() => undefined);
+    }, 15_000);
+    return () => {
+      active = false;
+      window.clearInterval(interval);
+    };
+  }, [loadCockpit]);
+
+  async function checkNow() {
+    setChecking(true);
+    setError("");
+    try {
+      const response = await fetch("/api/admin/settlement", { method: "POST" });
+      const payload = await response.json() as { cockpit?: SettlementCockpit | null; error?: string };
+      if (payload.cockpit) setCockpit(payload.cockpit);
+      if (!response.ok) throw new Error(payload.error || "Result check failed");
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "Result check failed");
+    } finally {
+      setChecking(false);
+    }
+  }
+
+  if (loading) return <UsersLoading />;
+  if (!cockpit) return <section className="admin-empty"><Broadcast size={42} weight="duotone" /><h2>No live spotlight.</h2><p>Publish a radar candidate before opening match operations.</p></section>;
+
+  const stages: { key: SettlementCockpit["status"]; label: string }[] = [
+    { key: "open", label: "Predictions open" },
+    { key: "waiting", label: "Waiting for result" },
+    { key: "result_received", label: "Result received" },
+    { key: "scored", label: "Points calculated" },
+  ];
+  const currentStage = stages.findIndex((stage) => stage.key === cockpit.status);
+  const lastCheck = cockpit.checks[0] || null;
+  const canCheck = cockpit.status !== "open" && (cockpit.status !== "scored" || lastCheck?.status === "failed");
+
+  return (
+    <section className="settlement-cockpit">
+      <div className="settlement-hero">
+        <div>
+          <span className={`settlement-status ${cockpit.status}`}>{settlementStatusLabel(cockpit.status)}</span>
+          <p>{cockpit.competitionName} · Match #{cockpit.fixtureId}</p>
+          <h2>{cockpit.homeName} <small>vs</small> {cockpit.awayName}</h2>
+          <time>{dateTime.format(new Date(cockpit.kickoff * 1000))}</time>
+        </div>
+        {cockpit.result ? (
+          <div className="settlement-result"><span>Final result</span><strong>{cockpit.result.homeScore}–{cockpit.result.awayScore}</strong><small>{cockpit.result.firstScorerName || `Player #${cockpit.result.firstScorer}`}{cockpit.result.firstGoalMinute ? ` · ${cockpit.result.firstGoalMinute}'` : " · No goal"}</small></div>
+        ) : (
+          <div className="settlement-result pending"><ArrowsClockwise size={25} /><span>Automatic checks</span><strong>Every minute</strong><small>{cockpit.nextCheckAt ? `Next: ${timeOnly(cockpit.nextCheckAt)}` : "Ready"}</small></div>
+        )}
+      </div>
+
+      <div className="settlement-progress" aria-label="Settlement progress">
+        {stages.map((stage, index) => <div key={stage.key} className={index < currentStage ? "complete" : index === currentStage ? "current" : ""}><span>{index < currentStage ? <CheckCircle size={18} weight="fill" /> : index + 1}</span><strong>{stage.label}</strong></div>)}
+      </div>
+
+      {cockpit.alert ? <div className="settlement-alert" role="alert"><WarningCircle size={20} /><span>{cockpit.alert}</span></div> : null}
+      {error ? <div className="settlement-alert" role="alert"><WarningCircle size={20} /><span>{error}</span></div> : null}
+
+      <div className="settlement-metrics">
+        <Metric icon={UsersThree} label="Squad players" value={String(cockpit.playerCount)} />
+        <Metric icon={SoccerBall} label="Predictions" value={String(cockpit.predictionCount)} />
+        <Metric icon={CheckCircle} label="Scores stored" value={`${cockpit.scoreCount}/${cockpit.predictionCount}`} />
+        <Metric icon={CalendarDots} label="Last checked" value={lastCheck ? relativeActivity(lastCheck.checkedAt) : "Not yet"} />
+      </div>
+
+      <div className="settlement-actions">
+        <div><strong>Soccerverse result watcher</strong><p>The cron checks from kick-off and stops once result, points and badges are complete.</p></div>
+        <button type="button" onClick={checkNow} disabled={!canCheck || checking}><ArrowsClockwise size={18} className={checking ? "is-spinning" : ""} />{checking ? "Checking Soccerverse" : cockpit.status === "scored" ? "Settlement complete" : canCheck ? "Check result now" : "Available at kick-off"}</button>
+      </div>
+
+      <div className="settlement-history">
+        <header><div><h3>Result checks</h3><p>Latest automatic and manual attempts.</p></div><span>{cockpit.checks.length} shown</span></header>
+        {cockpit.checks.length ? cockpit.checks.map((check) => (
+          <div className="settlement-check-row" key={check.id}>
+            <span className={`check-state ${check.status}`} />
+            <div><strong>{check.source === "cron" ? "Automatic cron" : "Manual admin check"}</strong><small>{check.error || check.status.replace("_", " ")}</small></div>
+            <time>{dateTime.format(new Date(check.checkedAt))}</time>
+            <b>{check.resultFound ? `${check.predictionsScored}/${check.predictionsTotal} scored` : check.status}</b>
+          </div>
+        )) : <div className="settlement-history-empty">The first check will appear here at kick-off.</div>}
+      </div>
+    </section>
   );
 }
 
@@ -508,6 +656,19 @@ function formatStrength(value: number | null) {
 
 function formatWeek(weekKey: string) {
   return new Intl.DateTimeFormat("en-GB", { day: "numeric", month: "short", year: "numeric", timeZone: "UTC" }).format(new Date(`${weekKey}T12:00:00Z`));
+}
+
+function settlementStatusLabel(status: SettlementCockpit["status"]) {
+  return {
+    open: "Predictions open",
+    waiting: "Waiting for Soccerverse",
+    result_received: "Result received",
+    scored: "Settlement complete",
+  }[status];
+}
+
+function timeOnly(timestamp: number) {
+  return new Intl.DateTimeFormat("en-GB", { hour: "2-digit", minute: "2-digit", timeZone: "Europe/Paris" }).format(new Date(timestamp));
 }
 
 function providerLabel(provider: string) {

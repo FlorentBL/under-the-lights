@@ -162,6 +162,22 @@ export const matchResults = sqliteTable("match_results", {
   settledAt: integer("settled_at").notNull(),
 });
 
+export const settlementChecks = sqliteTable("settlement_checks", {
+  id: text("id").primaryKey(),
+  matchId: text("match_id").notNull(),
+  source: text("source").notNull(),
+  status: text("status").notNull(),
+  resultFound: integer("result_found", { mode: "boolean" }).default(false).notNull(),
+  predictionsTotal: integer("predictions_total").default(0).notNull(),
+  predictionsScored: integer("predictions_scored").default(0).notNull(),
+  error: text("error"),
+  checkedAt: integer("checked_at").notNull(),
+  completedAt: integer("completed_at"),
+}, (table) => [
+  index("settlement_checks_match_checked_idx").on(table.matchId, table.checkedAt),
+  index("settlement_checks_status_idx").on(table.status),
+]);
+
 export const predictionScores = sqliteTable("prediction_scores", {
   predictionId: text("prediction_id").primaryKey().references(() => predictions.id, { onDelete: "cascade" }),
   outcomePoints: integer("outcome_points").notNull(),
