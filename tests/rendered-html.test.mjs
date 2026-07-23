@@ -29,6 +29,10 @@ test("ships the Under the Lights product surface", async () => {
   assert.match(app, /https:\/\/play\.soccerverse\.com\/match\/\$\{spotlight\.fixtureId\}/);
   assert.match(app, /league\/\$\{spotlight\.divisionLevel \+ 1\}/);
   assert.match(app, /Open in Soccerverse/);
+  assert.match(app, /utl-pending-prediction/);
+  assert.match(app, /Signed in\. Locking your prediction/);
+  assert.match(app, /void savePrediction\(pending, true\)/);
+  assert.match(app, /callbackURL: window\.location\.origin/);
   assert.match(css, /prefers-reduced-motion/);
   assert.doesNotMatch(packageJson, /react-loading-skeleton/);
   assert.doesNotMatch(app, /[—–]/);
