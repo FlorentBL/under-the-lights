@@ -135,6 +135,26 @@ const badgeIcons = {
 
 const emptySeason: SeasonPayload = { leaderboard: [], viewer: null };
 
+function pendingPredictionKey(fixtureId: number) {
+  return `utl-pending-prediction:${fixtureId}`;
+}
+
+function readPendingPrediction(fixtureId: number) {
+  const key = pendingPredictionKey(fixtureId);
+  const saved = window.localStorage.getItem(key);
+  if (!saved) return null;
+  try {
+    const parsed = JSON.parse(saved) as Prediction;
+    if (!Number.isInteger(parsed.homeScore) || !Number.isInteger(parsed.awayScore)
+      || typeof parsed.firstScorer !== "string" || typeof parsed.firstTeam !== "string"
+      || !GOAL_WINDOWS.includes(parsed.goalWindow)) throw new Error("Invalid prediction draft");
+    return parsed;
+  } catch {
+    window.localStorage.removeItem(key);
+    return null;
+  }
+}
+
 export function UnderTheLightsApp() {
   const { data: session, isPending: sessionPending } = authClient.useSession();
   const [view, setView] = useState<View>("spotlight");
@@ -155,6 +175,7 @@ export function UnderTheLightsApp() {
   const [predictionScore, setPredictionScore] = useState<PredictionScore | null>(null);
   const [season, setSeason] = useState<SeasonPayload>(emptySeason);
   const [seasonLoading, setSeasonLoading] = useState(true);
+  const pendingSyncRef = useRef("");
 
   useEffect(() => {
     if (!session) return;
@@ -177,6 +198,33 @@ export function UnderTheLightsApp() {
       .catch(() => setSeason(emptySeason))
       .finally(() => setSeasonLoading(false));
   }, []);
+
+  const savePrediction = useCallback(async (draft: Prediction, afterAuthentication = false) => {
+    setSaving(true);
+    setNotice(afterAuthentication ? "Signed in. Locking your prediction..." : "");
+    try {
+      const response = await fetch("/api/predictions", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ matchId: String(spotlight.fixtureId), ...draft }),
+      });
+      const payload = await response.json() as { error?: string };
+      if (!response.ok) throw new Error(payload.error || "Prediction could not be saved");
+      window.localStorage.removeItem(pendingPredictionKey(spotlight.fixtureId));
+      window.localStorage.removeItem(`utl-prediction:${spotlight.fixtureId}`);
+      setPrediction(draft);
+      setSubmitted(true);
+      setNotice("Prediction locked. You can edit it until kick-off.");
+      void refreshSeason();
+      return true;
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Prediction could not be saved";
+      setNotice(afterAuthentication ? `${message}. Your prediction is still here; click Lock prediction to retry.` : message);
+      return false;
+    } finally {
+      setSaving(false);
+    }
+  }, [refreshSeason, spotlight.fixtureId]);
 
   useEffect(() => {
     if (sessionPending) return;
@@ -202,35 +250,41 @@ export function UnderTheLightsApp() {
   }, []);
 
   useEffect(() => {
-    if (!spotlight.fixtureId) return;
+    if (sessionPending || !spotlight.fixtureId) return;
     const controller = new AbortController();
-    const localKey = `utl-prediction:${spotlight.fixtureId}`;
+    const pending = readPendingPrediction(spotlight.fixtureId);
     if (!session) {
-      const saved = window.localStorage.getItem(localKey);
-      if (saved) {
-        try {
-          const savedPrediction = JSON.parse(saved) as Prediction;
-          queueMicrotask(() => {
-            setPrediction(savedPrediction);
-            setSubmitted(true);
-          });
-        } catch {
-          window.localStorage.removeItem(localKey);
-        }
+      if (pending) queueMicrotask(() => setPrediction(pending));
+      return () => controller.abort();
+    }
+
+    if (pending) {
+      const syncKey = `${session.user.id}:${spotlight.fixtureId}`;
+      if (pendingSyncRef.current !== syncKey) {
+        pendingSyncRef.current = syncKey;
+        queueMicrotask(() => {
+          setPrediction(pending);
+          void savePrediction(pending, true);
+        });
       }
       return () => controller.abort();
     }
+
     fetch(`/api/predictions?matchId=${spotlight.fixtureId}`, { cache: "no-store", signal: controller.signal })
       .then(async (response) => await response.json() as { prediction?: (Prediction & { score?: PredictionScore | null }) | null })
       .then((payload) => {
-        if (!payload.prediction) return;
+        if (!payload.prediction) {
+          setSubmitted(false);
+          setPredictionScore(null);
+          return;
+        }
         setPrediction(payload.prediction);
         setPredictionScore(payload.prediction.score || null);
         setSubmitted(true);
       })
       .catch(() => undefined);
     return () => controller.abort();
-  }, [session, spotlight.fixtureId]);
+  }, [savePrediction, session, sessionPending, spotlight.fixtureId]);
 
   const navigate = (next: View) => {
     setView(next);
@@ -241,30 +295,17 @@ export function UnderTheLightsApp() {
   async function submitPrediction(event: FormEvent) {
     event.preventDefault();
     if (!session) {
+      try {
+        window.localStorage.setItem(pendingPredictionKey(spotlight.fixtureId), JSON.stringify(prediction));
+      } catch {
+        setNotice("Your browser could not keep this prediction during sign-in. Please try again after signing in.");
+        return;
+      }
       setNotice("Sign in to lock your prediction for the season.");
       setAuthOpen(true);
       return;
     }
-
-    setSaving(true);
-    setNotice("");
-    try {
-      const response = await fetch("/api/predictions", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ matchId: spotlight.fixtureId ? String(spotlight.fixtureId) : "preview-spotlight", ...prediction }),
-      });
-      const payload = await response.json() as { error?: string };
-      if (!response.ok) throw new Error(payload.error || "Prediction could not be saved");
-      window.localStorage.setItem(`utl-prediction:${spotlight.fixtureId}`, JSON.stringify(prediction));
-      setSubmitted(true);
-      setNotice("Prediction locked. You can edit it until kick-off.");
-      await refreshSeason();
-    } catch (error) {
-      setNotice(error instanceof Error ? error.message : "Prediction could not be saved");
-    } finally {
-      setSaving(false);
-    }
+    await savePrediction(prediction);
   }
 
   return (
@@ -371,7 +412,7 @@ function AuthDialog({ onClose }: { onClose: () => void }) {
   async function signInWithDiscord() {
     setPending(true);
     setError("");
-    const result = await authClient.signIn.social({ provider: "discord", callbackURL: window.location.href });
+    const result = await authClient.signIn.social({ provider: "discord", callbackURL: window.location.origin });
     if (result.error) {
       setPending(false);
       setError("Discord sign-in is waiting for the app credentials.");
