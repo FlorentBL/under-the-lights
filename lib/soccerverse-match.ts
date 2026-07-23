@@ -2,6 +2,12 @@ import { GOAL_WINDOWS, NO_GOAL, goalWindowForMinute, scorePrediction, type GoalW
 import { resultMayBeAvailable } from "@/lib/soccerverse-timing";
 import { validGoals, type MatchEvent } from "@/lib/soccerverse-events";
 import { awardParticipantBadges } from "@/lib/season-data";
+import {
+  activePlayerClubId,
+  playersAvailableForClub,
+  shouldRefreshSpotlightSquad,
+  type SoccerverseSquadPlayer,
+} from "@/lib/soccerverse-squad";
 
 const GSP_URL = "https://services.soccerverse.com/gsp/";
 const REST_URL = "https://services.soccerverse.com/api";
@@ -9,13 +15,11 @@ const DATAPACK_URL = "https://downloads.soccerverse.com/svpack/packv2/default.js
 const GAME_WORLD_ID = 1;
 
 type GspResponse<T> = { result?: { data?: T }; error?: { message?: string } };
-type SquadPlayer = {
+type SquadPlayer = SoccerverseSquadPlayer & {
   player_id: number;
   club_id: number;
   position?: number | null;
   rating?: number | null;
-  retired?: boolean;
-  loaned_to_club?: number | null;
 };
 type PlayerName = { id: string; f?: string; s?: string };
 type FixtureResult = {
@@ -78,11 +82,14 @@ export async function syncSpotlightPlayers(db: D1Database, fixture: PublishedFix
     gsp<SquadPlayer[]>("get_squad", { club_id: fixture.awayClubId, game_world_id: GAME_WORLD_ID }),
     playerNames(),
   ]);
-  const players = [...(homeSquad || []), ...(awaySquad || [])]
-    .filter((player) => !player.retired && !player.loaned_to_club)
+  const availablePlayers = [
+    ...playersAvailableForClub(homeSquad, fixture.homeClubId),
+    ...playersAvailableForClub(awaySquad, fixture.awayClubId),
+  ];
+  const players = [...new Map(availablePlayers.map((player) => [player.player_id, player])).values()]
     .map((player) => ({
       playerId: player.player_id,
-      clubId: player.club_id,
+      clubId: activePlayerClubId(player),
       name: names.get(player.player_id) || `Player #${player.player_id}`,
       position: player.position ?? null,
       rating: player.rating ?? null,
@@ -154,9 +161,17 @@ export async function settlePublishedSpotlights(db: D1Database, now = Date.now()
       homeClubId: Number(row.home_club_id),
       awayClubId: Number(row.away_club_id),
     };
-    const playerCount = await db.prepare("SELECT COUNT(*) AS count FROM spotlight_players WHERE match_id = ?")
-      .bind(fixture.matchId).first<{ count: number }>();
-    if (!Number(playerCount?.count || 0)) playersSynced += (await syncSpotlightPlayers(db, fixture)).length;
+    const playerSnapshot = await db.prepare(`SELECT COUNT(*) AS count, MAX(created_at) AS last_synced_at
+      FROM spotlight_players WHERE match_id = ?`)
+      .bind(fixture.matchId).first<{ count: number; last_synced_at: number | null }>();
+    if (shouldRefreshSpotlightSquad(
+      Number(playerSnapshot?.count || 0),
+      playerSnapshot?.last_synced_at ? Number(playerSnapshot.last_synced_at) : null,
+      fixture.kickoff,
+      now,
+    )) {
+      playersSynced += (await syncSpotlightPlayers(db, fixture)).length;
+    }
     if (!resultMayBeAvailable(fixture.kickoff, now)) continue;
 
     const checkId = crypto.randomUUID();

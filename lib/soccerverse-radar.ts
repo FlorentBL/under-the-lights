@@ -1,6 +1,7 @@
 import clubNamesSource from "@/data/club-mapping.json";
 import leagueNamesSource from "@/data/league-names.json";
 import { hasTwoActiveManagers } from "@/lib/manager-activity";
+import { playersAvailableForClub, type SoccerverseSquadPlayer } from "@/lib/soccerverse-squad";
 
 const GSP_URL = "https://services.soccerverse.com/gsp/";
 const GAME_WORLD_ID = 1;
@@ -31,7 +32,7 @@ type Fixture = {
   turn_id: number;
 };
 type Club = { club_id: number; manager_name?: string | null; fans_current?: number };
-type Player = { rating: number; retired?: boolean; loaned_to_club?: number | null };
+type Player = SoccerverseSquadPlayer & { rating: number };
 type UserActivity = { name: string; last_active: number };
 type TeamStanding = { clubId: number; played: number; won: number; drawn: number; lost: number; gf: number; ga: number; points: number; position: number };
 
@@ -138,9 +139,9 @@ function buildStandings(fixtures: Fixture[]) {
     .map((entry, index) => [entry.clubId, { ...entry, position: index + 1 }]));
 }
 
-function squadStrength(players: Player[] | undefined) {
-  const eligible = (players || [])
-    .filter((player) => !player.retired && !player.loaned_to_club && Number.isFinite(player.rating))
+function squadStrength(players: Player[] | undefined, clubId: number) {
+  const eligible = playersAvailableForClub(players, clubId)
+    .filter((player) => Number.isFinite(player.rating))
     .sort((a, b) => b.rating - a.rating)
     .slice(0, 18);
   if (!eligible.length) return null;
@@ -290,8 +291,8 @@ export async function calculateRadar(reference = new Date()) {
     const awayClub = clubs.get(`club:${item.fixture.away_club}`);
     const homeManager = normalizedManagerName(homeClub)!;
     const awayManager = normalizedManagerName(awayClub)!;
-    const homeStrength = squadStrength(squads.get(`squad:${item.fixture.home_club}`));
-    const awayStrength = squadStrength(squads.get(`squad:${item.fixture.away_club}`));
+    const homeStrength = squadStrength(squads.get(`squad:${item.fixture.home_club}`), item.fixture.home_club);
+    const awayStrength = squadStrength(squads.get(`squad:${item.fixture.away_club}`), item.fixture.away_club);
     const reasons = [...item.reasons];
     let score = item.score + 12;
     reasons.push("Both managers active in the last 14 days");

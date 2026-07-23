@@ -2,6 +2,11 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { validGoals } from "../lib/soccerverse-events.ts";
 import { resultMayBeAvailable } from "../lib/soccerverse-timing.ts";
+import {
+  activePlayerClubId,
+  playersAvailableForClub,
+  shouldRefreshSpotlightSquad,
+} from "../lib/soccerverse-squad.ts";
 
 test("checks Soccerverse results from kick-off instead of waiting 90 minutes", () => {
   const kickoff = 1_785_002_400;
@@ -28,4 +33,27 @@ test("uses event order to break two goals logged in the same minute", () => {
   ];
 
   assert.equal(validGoals(events)[0]?.player_id, 10);
+});
+
+test("assigns incoming loans to the borrowing club and removes outgoing loans", () => {
+  const linaresClubId = 9398;
+  const squad = [
+    { player_id: 1, club_id: linaresClubId, loaned_to_club: null },
+    { player_id: 355409, club_id: 1025, loaned_to_club: linaresClubId },
+    { player_id: 3, club_id: linaresClubId, loaned_to_club: 1025 },
+    { player_id: 4, club_id: linaresClubId, loaned_to_club: null, retired: true },
+  ];
+
+  assert.deepEqual(playersAvailableForClub(squad, linaresClubId).map((player) => player.player_id), [1, 355409]);
+  assert.equal(activePlayerClubId(squad[1]), linaresClubId);
+  assert.equal(activePlayerClubId(squad[2]), 1025);
+});
+
+test("refreshes future Spotlight squads when the stored snapshot is stale", () => {
+  const now = 2_000_000_000_000;
+  const futureKickoff = now / 1000 + 86_400;
+
+  assert.equal(shouldRefreshSpotlightSquad(0, null, futureKickoff, now), true);
+  assert.equal(shouldRefreshSpotlightSquad(30, now - 7 * 60 * 60 * 1000, futureKickoff, now), true);
+  assert.equal(shouldRefreshSpotlightSquad(30, now - 60 * 60 * 1000, futureKickoff, now), false);
 });
