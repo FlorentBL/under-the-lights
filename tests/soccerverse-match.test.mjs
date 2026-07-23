@@ -1,6 +1,15 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { validGoals } from "../lib/soccerverse-events.ts";
+import { resultMayBeAvailable } from "../lib/soccerverse-timing.ts";
+
+test("checks Soccerverse results from kick-off instead of waiting 90 minutes", () => {
+  const kickoff = 1_785_002_400;
+
+  assert.equal(resultMayBeAvailable(kickoff, kickoff * 1000 - 1), false);
+  assert.equal(resultMayBeAvailable(kickoff, kickoff * 1000), true);
+  assert.equal(resultMayBeAvailable(kickoff, kickoff * 1000 + 5 * 60 * 1000), true);
+});
 
 test("removes a goal overturned by the match engine", () => {
   const events = [

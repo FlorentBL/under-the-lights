@@ -1,4 +1,5 @@
 import { GOAL_WINDOWS, NO_GOAL, goalWindowForMinute, scorePrediction, type GoalWindow } from "@/lib/scoring";
+import { resultMayBeAvailable } from "@/lib/soccerverse-timing";
 import { validGoals, type MatchEvent } from "@/lib/soccerverse-events";
 import { awardParticipantBadges } from "@/lib/season-data";
 
@@ -140,7 +141,7 @@ export async function settlePublishedSpotlights(db: D1Database, now = Date.now()
     const playerCount = await db.prepare("SELECT COUNT(*) AS count FROM spotlight_players WHERE match_id = ?")
       .bind(fixture.matchId).first<{ count: number }>();
     if (!Number(playerCount?.count || 0)) playersSynced += (await syncSpotlightPlayers(db, fixture)).length;
-    if (now < (fixture.kickoff + 90 * 60) * 1000) continue;
+    if (!resultMayBeAvailable(fixture.kickoff, now)) continue;
 
     const result = await fetchFinalResult(fixture);
     if (!result) continue;
