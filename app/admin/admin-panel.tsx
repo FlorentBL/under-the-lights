@@ -319,7 +319,7 @@ export function AdminPanel() {
           <section className="radar-workspace">
             <div className="candidate-list">
               <div className="candidate-list-head">
-                <div><h2>Weekend shortlist</h2><p>Ranked by sporting stakes, balance, form and discovery value.</p></div>
+                <div><h2>Weekend shortlist</h2><p>Only fixtures with two active managers, ranked by sporting stakes, balance, form and discovery value.</p></div>
                 <span>{data.run.status === "completed" ? "Calculation complete" : data.run.status}</span>
               </div>
               <div className="candidate-scroll">
