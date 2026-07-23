@@ -104,6 +104,22 @@ test("protects predictions with Better Auth", async () => {
   assert.match(schema, /sqliteTable\("account"/);
 });
 
+test("ships verified email and password recovery flows", async () => {
+  const [app, auth, email] = await Promise.all([
+    readFile(new URL("../app/under-the-lights-app.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../lib/auth.ts", import.meta.url), "utf8"),
+    readFile(new URL("../lib/auth-email.ts", import.meta.url), "utf8"),
+  ]);
+
+  assert.match(app, /Forgot your password/);
+  assert.match(app, /requestPasswordReset/);
+  assert.match(app, /resetPassword/);
+  assert.match(app, /sendVerificationEmail/);
+  assert.match(auth, /requireEmailVerification/);
+  assert.match(auth, /revokeSessionsOnPasswordReset/);
+  assert.match(email, /api\.resend\.com/);
+});
+
 test("exposes the participant registry only to administrators", async () => {
   const [usersRoute, adminPanel, adminAuth, schema, migration] = await Promise.all([
     readFile(new URL("../app/api/admin/users/route.ts", import.meta.url), "utf8"),

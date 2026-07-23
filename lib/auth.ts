@@ -1,10 +1,11 @@
 import { drizzleAdapter } from "@better-auth/drizzle-adapter";
 import { betterAuth } from "better-auth";
-import { env } from "cloudflare:workers";
+import { env, waitUntil } from "cloudflare:workers";
 import { drizzle } from "drizzle-orm/d1";
 import * as schema from "@/db/schema";
+import { emailDeliveryConfigured, sendAuthEmail, type AuthEmailEnvironment } from "@/lib/auth-email";
 
-type AuthEnvironment = Cloudflare.Env & {
+type AuthEnvironment = Cloudflare.Env & AuthEmailEnvironment & {
   BETTER_AUTH_SECRET?: string;
   BETTER_AUTH_URL?: string;
   DISCORD_CLIENT_ID?: string;
@@ -14,6 +15,7 @@ type AuthEnvironment = Cloudflare.Env & {
 const authEnv = env as AuthEnvironment;
 const baseURL = authEnv.BETTER_AUTH_URL || "http://localhost:3000";
 const discordEnabled = Boolean(authEnv.DISCORD_CLIENT_ID && authEnv.DISCORD_CLIENT_SECRET);
+const transactionalEmailEnabled = emailDeliveryConfigured(authEnv);
 
 export const auth = betterAuth({
   appName: "Under the Lights",
@@ -27,7 +29,36 @@ export const auth = betterAuth({
     enabled: true,
     minPasswordLength: 8,
     autoSignIn: true,
+    requireEmailVerification: transactionalEmailEnabled,
+    resetPasswordTokenExpiresIn: 60 * 60,
+    revokeSessionsOnPasswordReset: true,
+    sendResetPassword: transactionalEmailEnabled
+      ? async ({ user, url }) => {
+          waitUntil(sendAuthEmail(authEnv, {
+            kind: "reset-password",
+            to: user.email,
+            name: user.name,
+            url,
+          }));
+        }
+      : undefined,
   },
+  emailVerification: transactionalEmailEnabled
+    ? {
+        expiresIn: 60 * 60,
+        sendOnSignUp: true,
+        sendOnSignIn: true,
+        autoSignInAfterVerification: true,
+        sendVerificationEmail: async ({ user, url }) => {
+          waitUntil(sendAuthEmail(authEnv, {
+            kind: "verify-email",
+            to: user.email,
+            name: user.name,
+            url,
+          }));
+        },
+      }
+    : undefined,
   socialProviders: discordEnabled
     ? {
         discord: {

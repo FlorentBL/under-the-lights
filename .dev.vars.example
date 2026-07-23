@@ -3,3 +3,6 @@ BETTER_AUTH_URL=http://localhost:3000
 DISCORD_CLIENT_ID=
 DISCORD_CLIENT_SECRET=
 ADMIN_EMAILS=admin@example.com
+RESEND_API_KEY=
+AUTH_EMAIL_FROM=Under the Lights <auth@example.com>
+AUTH_EMAIL_REPLY_TO=
