@@ -1,5 +1,6 @@
 import clubNamesSource from "@/data/club-mapping.json";
 import leagueNamesSource from "@/data/league-names.json";
+import { hasTwoActiveManagers } from "@/lib/manager-activity";
 
 const GSP_URL = "https://services.soccerverse.com/gsp/";
 const GAME_WORLD_ID = 1;
@@ -31,6 +32,7 @@ type Fixture = {
 };
 type Club = { club_id: number; manager_name?: string | null; fans_current?: number };
 type Player = { rating: number; retired?: boolean; loaned_to_club?: number | null };
+type UserActivity = { name: string; last_active: number };
 type TeamStanding = { clubId: number; played: number; won: number; drawn: number; lost: number; gf: number; ga: number; points: number; position: number };
 
 export type RadarCandidate = {
@@ -149,6 +151,11 @@ function record(row: TeamStanding | undefined) {
   return row ? `${row.won}-${row.drawn}-${row.lost}` : null;
 }
 
+function normalizedManagerName(club: Club | undefined) {
+  const name = club?.manager_name?.trim();
+  return name || null;
+}
+
 function baseScore(home: TeamStanding | undefined, away: TeamStanding | undefined, competition: Competition) {
   let score = competition.type === 0 ? 18 : 38;
   const reasons: string[] = competition.type === 0 ? [] : ["Knockout football"];
@@ -169,6 +176,28 @@ function baseScore(home: TeamStanding | undefined, away: TeamStanding | undefine
     else { score += 11; reasons.push("Lower-division spotlight"); }
   }
   return { score, reasons };
+}
+
+export async function inspectManagerEligibility(
+  homeClubId: number,
+  awayClubId: number,
+  nowSeconds = Math.floor(Date.now() / 1000),
+) {
+  const clubs = await rpcBatch<Club>([homeClubId, awayClubId].map((clubId) => ({
+    id: `club:${clubId}`, method: "get_club", params: { club_id: clubId },
+  })));
+  const homeManager = normalizedManagerName(clubs.get(`club:${homeClubId}`));
+  const awayManager = normalizedManagerName(clubs.get(`club:${awayClubId}`));
+  if (!homeManager || !awayManager) return { eligible: false, homeManager, awayManager };
+
+  const activities = await rpc<UserActivity[]>("get_users_last_active", { names: [homeManager, awayManager] });
+  const activityByManager = new Map((activities || [])
+    .map((activity) => [String(activity.name).toLowerCase(), Number(activity.last_active)]));
+  return {
+    eligible: hasTwoActiveManagers(homeManager, awayManager, activityByManager, nowSeconds),
+    homeManager,
+    awayManager,
+  };
 }
 
 export async function calculateRadar(reference = new Date()) {
@@ -231,23 +260,41 @@ export async function calculateRadar(reference = new Date()) {
     const away = table?.get(fixture.away_club);
     const scored = baseScore(home, away, competition);
     return { fixture, turn, competition, home, away, ...scored };
-  }).sort((a, b) => b.score - a.score).slice(0, 60);
+  }).sort((a, b) => b.score - a.score).slice(0, 240);
 
   const clubIds = [...new Set(preliminary.flatMap((item) => [item.fixture.home_club, item.fixture.away_club]))];
-  const enriched = await rpcBatch<Club | Player[]>(clubIds.flatMap((clubId) => [
-    { id: `club:${clubId}`, method: "get_club", params: { club_id: clubId } },
-    { id: `squad:${clubId}`, method: "get_squad", params: { club_id: clubId, game_world_id: GAME_WORLD_ID } },
-  ]));
+  const clubs = await rpcBatch<Club>(clubIds.map((clubId) => ({
+    id: `club:${clubId}`, method: "get_club", params: { club_id: clubId },
+  })));
+  const managerNames = [...new Set([...clubs.values()]
+    .map((club) => normalizedManagerName(club))
+    .filter((name): name is string => Boolean(name)))];
+  const activityResponses = await rpcBatch<UserActivity[]>(chunks(managerNames, 200).map((names, index) => ({
+    id: `activity:${index}`, method: "get_users_last_active", params: { names },
+  })));
+  const activityByManager = new Map([...activityResponses.values()].flat()
+    .map((activity) => [String(activity.name).toLowerCase(), Number(activity.last_active)]));
+  const activityNow = Math.floor(Date.now() / 1000);
+  const eligible = preliminary.filter((item) => {
+    const homeManager = normalizedManagerName(clubs.get(`club:${item.fixture.home_club}`));
+    const awayManager = normalizedManagerName(clubs.get(`club:${item.fixture.away_club}`));
+    return hasTwoActiveManagers(homeManager, awayManager, activityByManager, activityNow);
+  }).slice(0, 60);
+  const eligibleClubIds = [...new Set(eligible.flatMap((item) => [item.fixture.home_club, item.fixture.away_club]))];
+  const squads = await rpcBatch<Player[]>(eligibleClubIds.map((clubId) => ({
+    id: `squad:${clubId}`, method: "get_squad", params: { club_id: clubId, game_world_id: GAME_WORLD_ID },
+  })));
 
-  const candidates: RadarCandidate[] = preliminary.map((item) => {
-    const homeClub = enriched.get(`club:${item.fixture.home_club}`) as Club | undefined;
-    const awayClub = enriched.get(`club:${item.fixture.away_club}`) as Club | undefined;
-    const homeStrength = squadStrength(enriched.get(`squad:${item.fixture.home_club}`) as Player[] | undefined);
-    const awayStrength = squadStrength(enriched.get(`squad:${item.fixture.away_club}`) as Player[] | undefined);
+  const candidates: RadarCandidate[] = eligible.map((item) => {
+    const homeClub = clubs.get(`club:${item.fixture.home_club}`);
+    const awayClub = clubs.get(`club:${item.fixture.away_club}`);
+    const homeManager = normalizedManagerName(homeClub)!;
+    const awayManager = normalizedManagerName(awayClub)!;
+    const homeStrength = squadStrength(squads.get(`squad:${item.fixture.home_club}`));
+    const awayStrength = squadStrength(squads.get(`squad:${item.fixture.away_club}`));
     const reasons = [...item.reasons];
-    let score = item.score;
-    if (homeClub?.manager_name && awayClub?.manager_name) { score += 12; reasons.push("Two active managers"); }
-    else if (homeClub?.manager_name || awayClub?.manager_name) score += 4;
+    let score = item.score + 12;
+    reasons.push("Both managers active in the last 14 days");
     if (homeStrength !== null && awayStrength !== null) {
       const gap = Math.abs(homeStrength - awayStrength);
       score += Math.max(0, 10 - gap * 1.7);
@@ -277,7 +324,7 @@ export async function calculateRadar(reference = new Date()) {
       homePoints: item.home?.points ?? null,
       awayPoints: item.away?.points ?? null,
       homeRecord: record(item.home), awayRecord: record(item.away),
-      homeManager: homeClub?.manager_name || null, awayManager: awayClub?.manager_name || null,
+      homeManager, awayManager,
       homeStrength, awayStrength,
       score: Math.round(score * 100) / 100,
       reasons: [...new Set(reasons)],

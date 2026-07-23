@@ -1013,7 +1013,7 @@ function ProjectView({ onPlay }: { onPlay: () => void }) {
         <div className="radar-path">
           <article><CalendarCheck size={25} /><h3>Read the weekend</h3><p>The Radar scans the Soccerverse calendar for the next playable weekend.</p></article>
           <article><ChartBar size={25} /><h3>Measure the stakes</h3><p>League positions, points, form and squad balance reveal the strongest sporting stories.</p></article>
-          <article><UsersThree size={25} /><h3>Look beyond fame</h3><p>Active managers, division level and discovery value reward matches worth finding.</p></article>
+          <article><UsersThree size={25} /><h3>Require active managers</h3><p>Both clubs must have a manager who made a Soccerverse move within the last 14 days.</p></article>
           <article><Broadcast size={25} /><h3>Publish one Spotlight</h3><p>Twenty candidates reach the control room. One edited match story goes live.</p></article>
         </div>
       </section>

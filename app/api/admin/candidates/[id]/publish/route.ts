@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { env } from "cloudflare:workers";
 import { requireAdmin } from "@/lib/admin-auth";
 import { syncSpotlightPlayers } from "@/lib/soccerverse-match";
+import { inspectManagerEligibility } from "@/lib/soccerverse-radar";
 
 export async function POST(request: Request, context: { params: Promise<{ id: string }> }) {
   const access = await requireAdmin(request);
@@ -12,6 +13,16 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
   const candidate = await db.prepare(`SELECT c.*, r.week_key FROM spotlight_candidates c
     JOIN radar_runs r ON r.id = c.run_id WHERE c.id = ?`).bind(id).first<Record<string, unknown>>();
   if (!candidate) return NextResponse.json({ error: "Candidate not found" }, { status: 404 });
+  try {
+    const managers = await inspectManagerEligibility(Number(candidate.home_club_id), Number(candidate.away_club_id));
+    if (!managers.eligible) {
+      return NextResponse.json({
+        error: "This fixture no longer has two active managers. Run the radar again before publishing.",
+      }, { status: 409 });
+    }
+  } catch {
+    return NextResponse.json({ error: "Soccerverse manager activity could not be verified" }, { status: 502 });
+  }
   const title = String(payload.title || `${candidate.home_name} vs ${candidate.away_name}`).trim().slice(0, 120);
   const summary = String(payload.summary || "Two teams step into the spotlight. One match carries the week.").trim().slice(0, 360);
   const now = Date.now();

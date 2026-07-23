@@ -165,3 +165,20 @@ test("ships an administrator settlement cockpit", async () => {
   assert.match(migration, /CREATE TABLE `settlement_checks`/);
   assert.match(worker, /"\* \* \* \* \*"/);
 });
+
+test("requires two recently active Soccerverse managers in the radar", async () => {
+  const [radar, managerActivity, publishRoute, admin, app] = await Promise.all([
+    readFile(new URL("../lib/soccerverse-radar.ts", import.meta.url), "utf8"),
+    readFile(new URL("../lib/manager-activity.ts", import.meta.url), "utf8"),
+    readFile(new URL("../app/api/admin/candidates/[id]/publish/route.ts", import.meta.url), "utf8"),
+    readFile(new URL("../app/admin/admin-panel.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../app/under-the-lights-app.tsx", import.meta.url), "utf8"),
+  ]);
+  assert.match(radar, /get_users_last_active/);
+  assert.match(radar, /hasTwoActiveManagers/);
+  assert.match(managerActivity, /14 \* 24 \* 60 \* 60/);
+  assert.match(publishRoute, /inspectManagerEligibility/);
+  assert.match(publishRoute, /no longer has two active managers/);
+  assert.match(admin, /Only fixtures with two active managers/);
+  assert.match(app, /made a Soccerverse move within the last 14 days/);
+});
