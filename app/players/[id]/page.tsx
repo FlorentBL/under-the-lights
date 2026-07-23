@@ -69,7 +69,10 @@ export default async function PublicPlayerPage({ params }: { params: Promise<{ i
 
       <section className="public-player-hero" aria-labelledby="player-name">
         <div className="public-player-identity">
-          <div className="public-player-avatar" aria-hidden="true">{initials(player.displayName)}</div>
+          <div className="public-player-avatar" aria-hidden="true">
+            {initials(player.displayName)}
+            {player.avatarUrl && <span style={{ backgroundImage: `url(${JSON.stringify(player.avatarUrl)})` }} />}
+          </div>
           <div>
             <span>{player.rank ? `Season rank #${player.rank}` : "Season 1 competitor"}</span>
             <h1 id="player-name">{player.displayName}</h1>

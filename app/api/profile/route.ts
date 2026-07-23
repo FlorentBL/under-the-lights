@@ -1,11 +1,28 @@
 import { NextResponse } from "next/server";
 import { env } from "cloudflare:workers";
 import { auth } from "@/lib/auth";
+import { parseAvatarDataUrl, publicAvatarUrl } from "@/lib/profile-avatar";
 import { resolveSoccerverseUsername } from "@/lib/soccerverse-profile";
+
+type StoredProfile = {
+  soccerverse_username: string;
+  avatar_data_url: string | null;
+  updated_at: number;
+};
 
 async function requireUser(request: Request) {
   const session = await auth.api.getSession({ headers: request.headers });
   return session?.user || null;
+}
+
+function profilePayload(user: { id: string; image?: string | null }, profile: StoredProfile | null) {
+  return {
+    soccerverseUsername: profile?.soccerverse_username || null,
+    avatarUrl: profile?.avatar_data_url
+      ? publicAvatarUrl(user.id, Number(profile.updated_at))
+      : user.image || null,
+    hasCustomAvatar: Boolean(profile?.avatar_data_url),
+  };
 }
 
 export async function GET(request: Request) {
@@ -13,49 +30,81 @@ export async function GET(request: Request) {
   if (!user) return NextResponse.json({ error: "Authentication required" }, { status: 401 });
 
   const profile = await (env as Cloudflare.Env).DB
-    .prepare("SELECT soccerverse_username FROM user_profiles WHERE user_id = ?")
+    .prepare("SELECT soccerverse_username, avatar_data_url, updated_at FROM user_profiles WHERE user_id = ?")
     .bind(user.id)
-    .first<{ soccerverse_username: string }>();
+    .first<StoredProfile>();
 
-  return NextResponse.json(
-    { soccerverseUsername: profile?.soccerverse_username || null },
-    { headers: { "Cache-Control": "private, no-store" } },
-  );
+  return NextResponse.json(profilePayload(user, profile), {
+    headers: { "Cache-Control": "private, no-store" },
+  });
 }
 
 export async function PUT(request: Request) {
   const user = await requireUser(request);
   if (!user) return NextResponse.json({ error: "Authentication required" }, { status: 401 });
-
-  const body = await request.json().catch(() => null) as { soccerverseUsername?: unknown } | null;
-  if (!body || !("soccerverseUsername" in body)) {
-    return NextResponse.json({ error: "Soccerverse username required" }, { status: 400 });
+  const contentLength = Number(request.headers.get("content-length") || 0);
+  if (contentLength > 260_000) {
+    return NextResponse.json({ error: "Profile photo is too large" }, { status: 413 });
   }
 
-  let soccerverseUsername: string;
-  try {
-    soccerverseUsername = await resolveSoccerverseUsername(body.soccerverseUsername);
-  } catch (error) {
-    return NextResponse.json(
-      { error: error instanceof Error ? error.message : "Soccerverse account could not be verified" },
-      { status: 400 },
-    );
+  const body = await request.json().catch(() => null) as {
+    soccerverseUsername?: unknown;
+    avatarDataUrl?: unknown;
+  } | null;
+  const updatesSoccerverse = Boolean(body && Object.hasOwn(body, "soccerverseUsername"));
+  const updatesAvatar = Boolean(body && Object.hasOwn(body, "avatarDataUrl"));
+  if (!body || (!updatesSoccerverse && !updatesAvatar)) {
+    return NextResponse.json({ error: "No profile change supplied" }, { status: 400 });
   }
 
   const db = (env as Cloudflare.Env).DB;
-  if (!soccerverseUsername) {
+  const existing = await db.prepare(
+    "SELECT soccerverse_username, avatar_data_url, updated_at FROM user_profiles WHERE user_id = ?",
+  ).bind(user.id).first<StoredProfile>();
+  let soccerverseUsername = existing?.soccerverse_username || "";
+  let avatarDataUrl = existing?.avatar_data_url || null;
+
+  if (updatesSoccerverse) {
+    try {
+      soccerverseUsername = await resolveSoccerverseUsername(body.soccerverseUsername);
+    } catch (error) {
+      return NextResponse.json(
+        { error: error instanceof Error ? error.message : "Soccerverse account could not be verified" },
+        { status: 400 },
+      );
+    }
+  }
+
+  if (updatesAvatar) {
+    try {
+      const parsed = parseAvatarDataUrl(body.avatarDataUrl);
+      avatarDataUrl = parsed ? String(body.avatarDataUrl) : null;
+    } catch (error) {
+      return NextResponse.json(
+        { error: error instanceof Error ? error.message : "Profile photo could not be saved" },
+        { status: 400 },
+      );
+    }
+  }
+
+  if (!soccerverseUsername && !avatarDataUrl) {
     await db.prepare("DELETE FROM user_profiles WHERE user_id = ?").bind(user.id).run();
-    return NextResponse.json({ soccerverseUsername: null });
+    return NextResponse.json(profilePayload(user, null));
   }
 
   const now = Date.now();
   await db.prepare(`
-    INSERT INTO user_profiles (user_id, soccerverse_username, created_at, updated_at)
-    VALUES (?, ?, ?, ?)
+    INSERT INTO user_profiles (user_id, soccerverse_username, avatar_data_url, created_at, updated_at)
+    VALUES (?, ?, ?, ?, ?)
     ON CONFLICT(user_id) DO UPDATE SET
       soccerverse_username = excluded.soccerverse_username,
+      avatar_data_url = excluded.avatar_data_url,
       updated_at = excluded.updated_at
-  `).bind(user.id, soccerverseUsername, now, now).run();
+  `).bind(user.id, soccerverseUsername, avatarDataUrl, now, now).run();
 
-  return NextResponse.json({ soccerverseUsername });
+  return NextResponse.json(profilePayload(user, {
+    soccerverse_username: soccerverseUsername,
+    avatar_data_url: avatarDataUrl,
+    updated_at: now,
+  }));
 }

@@ -58,6 +58,7 @@ export const adminUsers = sqliteTable("admin_users", {
 export const userProfiles = sqliteTable("user_profiles", {
   userId: text("user_id").primaryKey().references(() => user.id, { onDelete: "cascade" }),
   soccerverseUsername: text("soccerverse_username").notNull(),
+  avatarDataUrl: text("avatar_data_url"),
   createdAt: integer("created_at").notNull(),
   updatedAt: integer("updated_at").notNull(),
 }, (table) => [index("user_profiles_soccerverse_username_idx").on(table.soccerverseUsername)]);

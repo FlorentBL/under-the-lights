@@ -44,6 +44,7 @@ export type LeaderboardEntry = {
   participantId: string;
   rank: number;
   displayName: string;
+  avatarUrl: string | null;
   soccerverseUsername: string | null;
   points: number;
   exactScores: number;
@@ -57,6 +58,8 @@ export type LeaderboardEntry = {
 export type SeasonViewer = {
   participantId: string | null;
   rank: number | null;
+  avatarUrl: string | null;
+  hasCustomAvatar: boolean;
   soccerverseUsername: string | null;
   stats: {
     points: number;
@@ -74,6 +77,7 @@ export type SeasonViewer = {
 export type PublicPlayerProfile = {
   participantId: string;
   displayName: string;
+  avatarUrl: string | null;
   soccerverseUsername: string | null;
   rank: number | null;
   stats: {
