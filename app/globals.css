@@ -419,6 +419,34 @@ select {
 .submit-prediction:disabled { opacity: .65; cursor: wait; }
 .form-notice { margin: 13px 0 0; color: #bbbdb8; font-size: 11px; line-height: 1.5; text-align: center; }
 
+.community-trends { margin-top: 24px; overflow: hidden; border: 1px solid var(--line); border-radius: var(--radius); background: linear-gradient(120deg, rgba(217,172,67,.04), transparent 35%), var(--surface); }
+.trends-heading { min-height: 70px; display: flex; align-items: center; justify-content: space-between; gap: 20px; padding: 0 24px; border-bottom: 1px solid var(--line); }
+.trends-heading > div { display: flex; align-items: center; gap: 10px; }
+.trends-heading svg { color: var(--gold-bright); }
+.trends-heading h3 { margin: 0; font-size: 15px; letter-spacing: -.02em; }
+.trends-heading > strong { color: var(--gold-bright); font-family: var(--font-geist-mono); font-size: 12px; }
+.trends-grid { display: grid; grid-template-columns: minmax(0, 1.35fr) minmax(220px, .82fr) minmax(240px, 1fr); }
+.trends-grid > div { min-width: 0; padding: 24px; }
+.trends-grid > div + div { border-left: 1px solid var(--line); }
+.outcome-trends > span, .trend-ranking > span { display: block; margin-bottom: 17px; color: var(--muted); font-size: 10px; font-weight: 800; letter-spacing: .08em; text-transform: uppercase; }
+.outcome-trends > div { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; }
+.outcome-trends article { min-width: 0; }
+.outcome-trends article strong, .outcome-trends article span, .outcome-trends article small { display: block; }
+.outcome-trends article strong { color: var(--ink); font-family: var(--font-geist-mono); font-size: clamp(23px, 2.5vw, 34px); letter-spacing: -.05em; }
+.outcome-trends article span { min-height: 30px; margin-top: 5px; overflow: hidden; color: #b9bbb7; font-size: 11px; font-weight: 760; line-height: 1.35; text-overflow: ellipsis; }
+.outcome-trends article small { margin-top: 5px; color: #717571; font-size: 9px; }
+.trend-ranking ol { display: grid; gap: 11px; margin: 0; padding: 0; list-style: none; }
+.trend-ranking li { display: grid; grid-template-columns: 22px minmax(0, 1fr) auto; align-items: center; gap: 9px; }
+.trend-ranking li i { width: 22px; height: 22px; display: grid; place-items: center; border: 1px solid rgba(217,172,67,.24); border-radius: 6px; color: var(--gold-bright); font-family: var(--font-geist-mono); font-size: 9px; font-style: normal; }
+.trend-ranking li strong { overflow: hidden; color: #c6c8c3; font-size: 11px; text-overflow: ellipsis; white-space: nowrap; }
+.trend-ranking li > span { color: var(--muted); font-family: var(--font-geist-mono); font-size: 10px; }
+.trends-message { min-height: 112px; display: grid; place-items: center; margin: 0; padding: 24px; color: var(--muted); font-size: 12px; text-align: center; }
+.trends-privacy { margin: 0; padding: 11px 24px; border-top: 1px solid var(--line); color: #6d716d; font-size: 9px; line-height: 1.45; }
+.trends-skeleton { display: grid; grid-template-columns: 1.35fr .82fr 1fr; min-height: 140px; }
+.trends-skeleton span { background: linear-gradient(100deg, transparent 20%, rgba(255,255,255,.035) 45%, transparent 70%); background-size: 220% 100%; animation: trends-loading 1.4s ease-in-out infinite; }
+.trends-skeleton span + span { border-left: 1px solid var(--line); }
+@keyframes trends-loading { from { background-position: 100% 0; } to { background-position: -100% 0; } }
+
 .week-leaders {
   max-width: 1500px;
   margin: 0 auto;
@@ -789,6 +817,7 @@ select {
 
 @media (prefers-reduced-motion: reduce) {
   .hero-pointer-light { display: none; }
+  .trends-skeleton span { animation: none; background: rgba(255,255,255,.02); }
 }
 
 @media (max-width: 1120px) {
@@ -841,6 +870,11 @@ select {
   .match-dossier .dossier-intro { padding-left: 0; }
   .prediction-section, .inner-page { padding: 80px 16px 96px; }
   .prediction-main { padding: 22px 16px; }
+  .trends-grid { grid-template-columns: 1fr; }
+  .trends-grid > div + div { border-top: 1px solid var(--line); border-left: 0; }
+  .trends-skeleton { grid-template-columns: 1fr; }
+  .trends-skeleton span { min-height: 82px; }
+  .trends-skeleton span + span { border-top: 1px solid var(--line); border-left: 0; }
   .score-picker { gap: 8px; }
   .score-control > div { grid-template-columns: 35px 1fr 35px; }
   .score-control > span { font-size: 12px; }

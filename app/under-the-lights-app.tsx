@@ -40,6 +40,7 @@ import { authClient } from "@/lib/auth-client";
 import { positionCategories, positionSummary, primaryPositionCategory, type PositionCategory } from "@/lib/player-positions";
 import { MAX_AVATAR_DATA_URL_LENGTH } from "@/lib/profile-avatar";
 import { GOAL_WINDOWS, MAX_PREDICTION_POINTS, NO_GOAL, type GoalWindow, type ScoreBreakdown } from "@/lib/scoring";
+import type { PredictionTrends } from "@/lib/prediction-trends";
 import type { BadgeKey, SeasonPayload, SeasonViewer } from "@/lib/season";
 import { soccerverseProfileUrl } from "@/lib/soccerverse-profile";
 
@@ -180,6 +181,8 @@ export function UnderTheLightsApp() {
   const [spotlight, setSpotlight] = useState<Spotlight>(fallbackSpotlight);
   const [adminUserId, setAdminUserId] = useState("");
   const [predictionScore, setPredictionScore] = useState<PredictionScore | null>(null);
+  const [predictionTrends, setPredictionTrends] = useState<PredictionTrends | null>(null);
+  const [trendsLoading, setTrendsLoading] = useState(true);
   const [season, setSeason] = useState<SeasonPayload>(emptySeason);
   const [seasonLoading, setSeasonLoading] = useState(true);
   const pendingSyncRef = useRef("");
@@ -232,6 +235,18 @@ export function UnderTheLightsApp() {
       .finally(() => setSeasonLoading(false));
   }, []);
 
+  const refreshPredictionTrends = useCallback(() => {
+    if (!spotlight.fixtureId) return Promise.resolve();
+    return fetch(`/api/predictions/trends?matchId=${spotlight.fixtureId}`, { cache: "no-store" })
+      .then(async (response) => {
+        if (!response.ok) throw new Error("Community picks unavailable");
+        return response.json() as Promise<{ trends: PredictionTrends }>;
+      })
+      .then((payload) => setPredictionTrends(payload.trends))
+      .catch(() => setPredictionTrends(null))
+      .finally(() => setTrendsLoading(false));
+  }, [spotlight.fixtureId]);
+
   const savePrediction = useCallback(async (draft: Prediction, afterAuthentication = false) => {
     setSaving(true);
     setNotice(afterAuthentication ? "Signed in. Locking your prediction..." : "");
@@ -249,6 +264,7 @@ export function UnderTheLightsApp() {
       setSubmitted(true);
       setNotice("Prediction locked. You can edit it until kick-off.");
       void refreshSeason();
+      void refreshPredictionTrends();
       return true;
     } catch (error) {
       const message = error instanceof Error ? error.message : "Prediction could not be saved";
@@ -257,7 +273,7 @@ export function UnderTheLightsApp() {
     } finally {
       setSaving(false);
     }
-  }, [refreshSeason, spotlight.fixtureId]);
+  }, [refreshPredictionTrends, refreshSeason, spotlight.fixtureId]);
 
   useEffect(() => {
     if (sessionPending) return;
@@ -265,11 +281,20 @@ export function UnderTheLightsApp() {
   }, [refreshSeason, session?.user.id, sessionPending]);
 
   useEffect(() => {
+    void refreshPredictionTrends();
+  }, [refreshPredictionTrends]);
+
+  useEffect(() => {
     fetch("/api/spotlight/current")
       .then(async (response) => await response.json() as { spotlight?: Spotlight | null })
       .then((payload) => {
-        if (!payload.spotlight) return;
+        if (!payload.spotlight) {
+          setTrendsLoading(false);
+          return;
+        }
         const next = payload.spotlight;
+        setPredictionTrends(null);
+        setTrendsLoading(true);
         setSpotlight(next);
         setPrediction({
           homeScore: 2,
@@ -279,7 +304,7 @@ export function UnderTheLightsApp() {
           firstTeam: String(next.homeClubId),
         });
       })
-      .catch(() => undefined);
+      .catch(() => setTrendsLoading(false));
   }, []);
 
   useEffect(() => {
@@ -383,6 +408,8 @@ export function UnderTheLightsApp() {
             saving={saving}
             notice={notice}
             score={predictionScore}
+            trends={predictionTrends}
+            trendsLoading={trendsLoading}
             leaders={season.leaderboard}
             projectedPoints={MAX_PREDICTION_POINTS}
             onSubmit={submitPrediction}
@@ -707,7 +734,7 @@ function NavButton({ active, onClick, children }: { active: boolean; onClick: ()
   return <button className={active ? "nav-button active" : "nav-button"} onClick={onClick}>{children}</button>;
 }
 
-function SpotlightView({ spotlight, prediction, setPrediction, submitted, saving, notice, score, leaders, projectedPoints, onSubmit, onLeaderboard }: {
+function SpotlightView({ spotlight, prediction, setPrediction, submitted, saving, notice, score, trends, trendsLoading, leaders, projectedPoints, onSubmit, onLeaderboard }: {
   spotlight: Spotlight;
   prediction: Prediction;
   setPrediction: (prediction: Prediction) => void;
@@ -715,6 +742,8 @@ function SpotlightView({ spotlight, prediction, setPrediction, submitted, saving
   saving: boolean;
   notice: string;
   score: PredictionScore | null;
+  trends: PredictionTrends | null;
+  trendsLoading: boolean;
   leaders: SeasonPayload["leaderboard"];
   projectedPoints: number;
   onSubmit: (event: FormEvent) => void;
@@ -836,6 +865,7 @@ function SpotlightView({ spotlight, prediction, setPrediction, submitted, saving
             {notice && <p className="form-notice" role="status">{notice}</p>}
           </aside>
         </form>
+        <CommunityTrends trends={trends} loading={trendsLoading} homeName={spotlight.homeName} awayName={spotlight.awayName} />
       </section>
 
       <section className="week-leaders">
@@ -843,6 +873,78 @@ function SpotlightView({ spotlight, prediction, setPrediction, submitted, saving
         <div className="leader-podium">{leaders.length ? leaders.slice(0, 3).map((entry) => <div key={entry.participantId} className="mini-rank"><span>{String(entry.rank).padStart(2, "0")}</span><div><CompetitorAvatar name={entry.displayName} avatarUrl={entry.avatarUrl} className="mini-player-avatar" /><a className="public-player-link" href={`/players/${encodeURIComponent(entry.participantId)}`}>{entry.displayName}</a><small>{entry.played} played · {entry.exactScores} exact</small>{entry.soccerverseUsername && <SoccerverseAccountLink username={entry.soccerverseUsername} compact />}</div><b>{entry.points}<small> pts</small></b></div>) : <SeasonEmpty compact title="The table is waiting" description="The first settled spotlight will reveal the opening standings." />}</div>
       </section>
     </>
+  );
+}
+
+function CommunityTrends({ trends, loading, homeName, awayName }: {
+  trends: PredictionTrends | null;
+  loading: boolean;
+  homeName: string;
+  awayName: string;
+}) {
+  const outcomeLabels = {
+    home: homeName,
+    draw: "Draw",
+    away: awayName,
+  } as const;
+
+  return (
+    <section className="community-trends" aria-labelledby="community-trends-title" aria-busy={loading}>
+      <div className="trends-heading">
+        <div>
+          <UsersThree size={22} weight="duotone" />
+          <h3 id="community-trends-title">Community picks</h3>
+        </div>
+        <strong>{loading && !trends ? "Loading" : `${trends?.total || 0} locked`}</strong>
+      </div>
+
+      {loading && !trends ? (
+        <div className="trends-skeleton" aria-label="Loading community picks"><span /><span /><span /></div>
+      ) : !trends ? (
+        <p className="trends-message">Community picks could not be loaded right now.</p>
+      ) : !trends.available ? (
+        <p className="trends-message">
+          {trends.total === 0
+            ? "Be the first to lock a prediction."
+            : `${trends.minimumSampleSize - trends.total} more ${trends.minimumSampleSize - trends.total === 1 ? "pick" : "picks"} needed before anonymous trends appear.`}
+        </p>
+      ) : (
+        <div className="trends-grid">
+          <div className="outcome-trends">
+            <span>Match result</span>
+            <div>
+              {trends.outcomes.map((item) => (
+                <article key={item.key}>
+                  <strong>{item.percentage}%</strong>
+                  <span>{outcomeLabels[item.key as keyof typeof outcomeLabels] || item.label}</span>
+                  <small>{item.count} {item.count === 1 ? "pick" : "picks"}</small>
+                </article>
+              ))}
+            </div>
+          </div>
+          <TrendRanking title="Top scorelines" items={trends.topScores} />
+          <TrendRanking title="First goalscorer" items={trends.topScorers} />
+        </div>
+      )}
+      <p className="trends-privacy">Anonymous totals only. Trends refresh after every locked prediction.</p>
+    </section>
+  );
+}
+
+function TrendRanking({ title, items }: { title: string; items: PredictionTrends["topScores"] }) {
+  return (
+    <div className="trend-ranking">
+      <span>{title}</span>
+      <ol>
+        {items.map((item, index) => (
+          <li key={item.key}>
+            <i>{index + 1}</i>
+            <strong>{item.label}</strong>
+            <span>{item.percentage}%</span>
+          </li>
+        ))}
+      </ol>
+    </div>
   );
 }
 
