@@ -98,6 +98,23 @@ button:focus-visible, a:focus-visible, select:focus-visible, input:focus-visible
 .nav-button:active { transform: translateY(1px); }
 .admin-link { display: inline-flex; align-items: center; gap: 7px; text-decoration: none; }
 .header-actions { display: flex; justify-content: flex-end; align-items: center; gap: 8px; }
+.language-select {
+  position: relative;
+  min-height: 42px;
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 0 10px;
+  border: 1px solid var(--line-strong);
+  border-radius: 10px;
+  background: rgba(255,255,255,.035);
+  color: #c9cbc5;
+  cursor: pointer;
+  transition: border-color .2s ease, background .2s ease, color .2s ease;
+}
+.language-select:hover { border-color: rgba(217,172,67,.5); background: rgba(217,172,67,.07); color: var(--ink); }
+.language-select select { position: absolute; inset: 0; width: 100%; opacity: 0; cursor: pointer; }
+.language-code { min-width: 21px; color: var(--ink); font-size: 11px; font-weight: 850; letter-spacing: .08em; }
 .sign-in-button, .profile-chip {
   min-height: 42px;
   display: inline-flex;
@@ -743,6 +760,7 @@ select {
 .public-player-page { min-height: 100dvh; position: relative; isolation: isolate; overflow: hidden; background: var(--bg); }
 .public-player-page::before { content: ""; position: absolute; z-index: -1; width: 760px; height: 760px; right: -340px; top: -280px; border-radius: 50%; background: radial-gradient(circle, rgba(217,172,67,.1), transparent 68%); pointer-events: none; }
 .public-player-header { height: var(--header-height); display: flex; align-items: center; justify-content: space-between; gap: 24px; padding: 0 clamp(20px, 5vw, 74px); border-bottom: 1px solid var(--line); background: rgba(12,13,13,.9); }
+.public-player-header-actions { display: flex; align-items: center; gap: 10px; }
 .public-player-brand { display: block; }
 .public-player-brand img { width: 205px; height: 66px; display: block; object-fit: contain; object-position: left center; mix-blend-mode: screen; filter: brightness(1.08) contrast(1.08); }
 .public-player-back { display: inline-flex; align-items: center; gap: 8px; color: #b7bab5; font-size: 12px; font-weight: 750; text-decoration: none; }
@@ -911,6 +929,11 @@ select {
   .hero-photo { object-position: 62% center; }
   .hero-copy { padding-bottom: 0; }
   .hero-copy h1 { font-size: clamp(54px, 16vw, 82px); }
+  html:not([lang="en"]) .hero-copy h1 {
+    font-size: clamp(43px, 12vw, 64px);
+    letter-spacing: -.065em;
+    white-space: normal;
+  }
   .fixture-panel { padding: 24px 18px; }
   .teams { gap: 9px; margin: 30px 0; }
   .team-badge { width: 68px; height: 74px; font-size: 19px; }
