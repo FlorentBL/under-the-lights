@@ -39,14 +39,15 @@ test("ships the Under the Lights product surface", async () => {
 });
 
 test("includes durable prediction storage and brand assets", async () => {
-  const [route, hosting, schema] = await Promise.all([
+  const [route, wrangler, schema] = await Promise.all([
     readFile(new URL("../app/api/predictions/route.ts", import.meta.url), "utf8"),
-    readFile(new URL("../.openai/hosting.json", import.meta.url), "utf8"),
+    readFile(new URL("../wrangler.jsonc", import.meta.url), "utf8"),
     readFile(new URL("../db/schema.ts", import.meta.url), "utf8"),
   ]);
 
   assert.match(route, /ON CONFLICT\(participant_id, match_id\)/);
-  assert.match(hosting, /"d1": "DB"/);
+  assert.match(wrangler, /"binding": "DB"/);
+  assert.match(wrangler, /https:\/\/under-the-lights\.flobl\.workers\.dev/);
   assert.match(schema, /prediction_participant_match_idx/);
   await access(new URL("../public/logo.png", import.meta.url));
   await access(new URL("../public/og.png", import.meta.url));

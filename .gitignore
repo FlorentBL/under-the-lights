@@ -10,6 +10,7 @@ node_modules/
 .vinext/
 .wrangler/
 .vercel/
+.openai/hosting.json
 dist/
 coverage/
 *.log
