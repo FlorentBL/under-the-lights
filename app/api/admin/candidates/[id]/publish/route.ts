@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { env } from "cloudflare:workers";
 import { requireAdmin } from "@/lib/admin-auth";
+import { jsonRequestErrorResponse, readJsonObject } from "@/lib/request-validation";
 import { syncSpotlightPlayers } from "@/lib/soccerverse-match";
 import { inspectManagerEligibility } from "@/lib/soccerverse-radar";
 
@@ -8,7 +9,21 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
   const access = await requireAdmin(request);
   if (!access.ok) return NextResponse.json({ error: access.error }, { status: access.status });
   const { id } = await context.params;
-  const payload = await request.json().catch(() => ({})) as { title?: string; summary?: string };
+  if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(id)) {
+    return NextResponse.json({ error: "Candidate not found" }, { status: 404 });
+  }
+  let payload: Record<string, unknown>;
+  try {
+    payload = await readJsonObject(request);
+  } catch (error) {
+    return jsonRequestErrorResponse(error);
+  }
+  if ((payload.title !== undefined && typeof payload.title !== "string")
+    || (payload.summary !== undefined && typeof payload.summary !== "string")) {
+    return NextResponse.json({ error: "Title and summary must be text" }, { status: 400 });
+  }
+  const requestedTitle = typeof payload.title === "string" ? payload.title : "";
+  const requestedSummary = typeof payload.summary === "string" ? payload.summary : "";
   const db = (env as Cloudflare.Env).DB;
   const candidate = await db.prepare(`SELECT c.*, r.week_key FROM spotlight_candidates c
     JOIN radar_runs r ON r.id = c.run_id WHERE c.id = ?`).bind(id).first<Record<string, unknown>>();
@@ -23,8 +38,8 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
   } catch {
     return NextResponse.json({ error: "Soccerverse manager activity could not be verified" }, { status: 502 });
   }
-  const title = String(payload.title || `${candidate.home_name} vs ${candidate.away_name}`).trim().slice(0, 120);
-  const summary = String(payload.summary || "Two teams step into the spotlight. One match carries the week.").trim().slice(0, 360);
+  const title = (requestedTitle || `${candidate.home_name} vs ${candidate.away_name}`).trim().slice(0, 120);
+  const summary = (requestedSummary || "Two teams step into the spotlight. One match carries the week.").trim().slice(0, 360);
   const now = Date.now();
   await db.prepare(`INSERT INTO spotlights
       (id, week_key, candidate_id, status, editorial_title, editorial_summary, published_by, published_at, updated_at)
