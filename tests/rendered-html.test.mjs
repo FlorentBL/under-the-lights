@@ -240,3 +240,31 @@ test("lets participants upload a safe custom profile photo", async () => {
   assert.match(schema, /avatarDataUrl/);
   assert.match(migration, /ADD COLUMN `avatar_data_url`/);
 });
+
+test("lets participants choose community crests without downloading the full datapack", async () => {
+  const [app, profileRoute, spotlightRoute, seasonData, schema, migration, datapack] = await Promise.all([
+    readFile(new URL("../app/under-the-lights-app.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../app/api/profile/route.ts", import.meta.url), "utf8"),
+    readFile(new URL("../app/api/spotlight/current/route.ts", import.meta.url), "utf8"),
+    readFile(new URL("../lib/season-data.ts", import.meta.url), "utf8"),
+    readFile(new URL("../db/schema.ts", import.meta.url), "utf8"),
+    readFile(new URL("../drizzle/0009_datapack_preferences.sql", import.meta.url), "utf8"),
+    readFile(new URL("../lib/datapack.ts", import.meta.url), "utf8"),
+  ]);
+
+  assert.match(app, /Datapack source/);
+  assert.match(app, /Community pack/);
+  assert.match(app, /The full datapack is never downloaded/);
+  assert.match(app, /homeCommunityLogoUrl/);
+  assert.match(profileRoute, /parseDatapackMode/);
+  assert.match(profileRoute, /datapack_mode/);
+  assert.match(profileRoute, /CASE WHEN \? THEN excluded\.datapack_mode ELSE user_profiles\.datapack_mode END/);
+  assert.match(profileRoute, /updatesDatapack \? 1 : 0/);
+  assert.match(profileRoute, /WHERE user_id = \? AND soccerverse_username = '' AND avatar_data_url IS NULL AND datapack_mode = 'default'/);
+  assert.match(spotlightRoute, /communityClubLogoUrl/);
+  assert.match(seasonData, /normalizeDatapackMode/);
+  assert.match(schema, /datapackMode/);
+  assert.match(migration, /ADD COLUMN `datapack_mode`/);
+  assert.match(datapack, /https:\/\/elrincondeldt\.com\/sv\/photos\/teams\//);
+  assert.doesNotMatch(spotlightRoute, /rincon_s4\.json/);
+});

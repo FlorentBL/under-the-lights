@@ -9,6 +9,7 @@ import {
 } from "@/lib/season";
 import { publicAvatarUrl } from "@/lib/profile-avatar";
 import type { GoalWindow } from "@/lib/scoring";
+import { normalizeDatapackMode } from "@/lib/datapack";
 
 function nullableNumber(value: unknown) {
   return value === null || value === undefined ? null : Number(value);
@@ -127,7 +128,8 @@ export async function loadSeason(db: D1Database, participantId?: string): Promis
     loadParticipantHistory(db, participantId),
     db.prepare("SELECT badge_key, earned_at FROM participant_badges WHERE participant_id = ?")
       .bind(participantId).all<Record<string, unknown>>(),
-    db.prepare(`SELECT up.soccerverse_username, up.avatar_data_url, up.updated_at AS profile_updated_at,
+    db.prepare(`SELECT up.soccerverse_username, up.avatar_data_url, up.datapack_mode,
+        up.updated_at AS profile_updated_at,
         u.image AS auth_image
       FROM user u
       LEFT JOIN user_profiles up ON up.user_id = u.id
@@ -153,6 +155,7 @@ export async function loadSeason(db: D1Database, participantId?: string): Promis
         : profile?.auth_image ? String(profile.auth_image) : null,
       hasCustomAvatar: Boolean(profile?.avatar_data_url),
       soccerverseUsername: profile?.soccerverse_username ? String(profile.soccerverse_username) : null,
+      datapackMode: normalizeDatapackMode(profile?.datapack_mode),
       stats: {
         points,
         exactScores,
