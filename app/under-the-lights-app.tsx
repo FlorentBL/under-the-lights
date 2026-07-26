@@ -42,6 +42,7 @@ import { MAX_AVATAR_DATA_URL_LENGTH } from "@/lib/profile-avatar";
 import { GOAL_WINDOWS, MAX_PREDICTION_POINTS, NO_GOAL, type GoalWindow, type ScoreBreakdown } from "@/lib/scoring";
 import type { BadgeKey, SeasonPayload, SeasonViewer } from "@/lib/season";
 import { soccerverseProfileUrl } from "@/lib/soccerverse-profile";
+import type { DatapackMode } from "@/lib/datapack";
 
 type View = "spotlight" | "how-it-works" | "leaderboard" | "achievements" | "project" | "profile";
 type AuthIntent = "sign-in" | "reset-password" | "verified" | "verification-error" | "reset-error";
@@ -72,6 +73,8 @@ type Spotlight = {
   kickoff: number;
   homeClubId: number;
   awayClubId: number;
+  homeCommunityLogoUrl: string | null;
+  awayCommunityLogoUrl: string | null;
   countryCode: string;
   competitionName: string;
   homeName: string;
@@ -108,6 +111,8 @@ const fallbackSpotlight: Spotlight = {
   kickoff: 1785004200,
   homeClubId: 0,
   awayClubId: 0,
+  homeCommunityLogoUrl: null,
+  awayCommunityLogoUrl: null,
   countryCode: "POL",
   competitionName: "I Liga",
   homeName: "Wisła Kraków",
@@ -377,6 +382,7 @@ export function UnderTheLightsApp() {
         {view === "spotlight" && (
           <SpotlightView
             spotlight={spotlight}
+            datapackMode={season.viewer?.datapackMode || "default"}
             prediction={prediction}
             setPrediction={setPrediction}
             submitted={submitted}
@@ -707,8 +713,9 @@ function NavButton({ active, onClick, children }: { active: boolean; onClick: ()
   return <button className={active ? "nav-button active" : "nav-button"} onClick={onClick}>{children}</button>;
 }
 
-function SpotlightView({ spotlight, prediction, setPrediction, submitted, saving, notice, score, leaders, projectedPoints, onSubmit, onLeaderboard }: {
+function SpotlightView({ spotlight, datapackMode, prediction, setPrediction, submitted, saving, notice, score, leaders, projectedPoints, onSubmit, onLeaderboard }: {
   spotlight: Spotlight;
+  datapackMode: DatapackMode;
   prediction: Prediction;
   setPrediction: (prediction: Prediction) => void;
   submitted: boolean;
@@ -780,9 +787,22 @@ function SpotlightView({ spotlight, prediction, setPrediction, submitted, saving
             <time>{kickoff}</time>
           </div>
           <div className="teams">
-            <TeamMark initials={initials(spotlight.homeName)} name={spotlight.homeName} position={spotlight.homePosition} competition={spotlight.competitionName} home />
+            <TeamMark
+              initials={initials(spotlight.homeName)}
+              name={spotlight.homeName}
+              position={spotlight.homePosition}
+              competition={spotlight.competitionName}
+              logoUrl={datapackMode === "community" ? spotlight.homeCommunityLogoUrl : null}
+              home
+            />
             <div className="versus"><span>VS</span><small>{spotlightReason}</small></div>
-            <TeamMark initials={initials(spotlight.awayName)} name={spotlight.awayName} position={spotlight.awayPosition} competition={spotlight.competitionName} />
+            <TeamMark
+              initials={initials(spotlight.awayName)}
+              name={spotlight.awayName}
+              position={spotlight.awayPosition}
+              competition={spotlight.competitionName}
+              logoUrl={datapackMode === "community" ? spotlight.awayCommunityLogoUrl : null}
+            />
           </div>
           <div className="fixture-story"><strong>{spotlight.title}</strong><p>{spotlight.summary}</p></div>
           <SoccerverseLinks spotlight={spotlight} />
@@ -857,8 +877,28 @@ function ScoreBreakdown({ score }: { score: PredictionScore }) {
   return <div className="scoring-key awarded" aria-label="Points breakdown">{items.map(([label, points]) => <span className={points ? "hit" : "miss"} key={label}>{label} <b>+{points}</b></span>)}</div>;
 }
 
-function TeamMark({ initials: mark, name, position, competition, home = false }: { initials: string; name: string; position: number | null; competition: string; home?: boolean }) {
-  return <div className="team-mark"><div className={home ? "team-badge home" : "team-badge"}>{mark}</div><strong>{name}</strong><span>{position ? `#${position}` : "Unranked"} in {competition}</span></div>;
+function TeamMark({ initials: mark, name, position, competition, logoUrl, home = false }: {
+  initials: string;
+  name: string;
+  position: number | null;
+  competition: string;
+  logoUrl: string | null;
+  home?: boolean;
+}) {
+  const [failedLogoUrl, setFailedLogoUrl] = useState<string | null>(null);
+  const showCommunityLogo = Boolean(logoUrl && logoUrl !== failedLogoUrl);
+
+  return (
+    <div className="team-mark">
+      <div className={`team-badge${home ? " home" : ""}${showCommunityLogo ? " community" : ""}`}>
+        {showCommunityLogo
+          ? <Image className="team-community-logo" src={logoUrl!} alt="" width={88} height={96} referrerPolicy="no-referrer" onError={() => setFailedLogoUrl(logoUrl)} />
+          : mark}
+      </div>
+      <strong>{name}</strong>
+      <span>{position ? `#${position}` : "Unranked"} in {competition}</span>
+    </div>
+  );
 }
 
 function SoccerverseLinks({ spotlight }: { spotlight: Spotlight }) {
@@ -1158,6 +1198,10 @@ function ProfileView({ user, viewer, loading, onAchievements, onProfileUpdated, 
   const [profileSaving, setProfileSaving] = useState(false);
   const [profileNotice, setProfileNotice] = useState("");
   const [profileError, setProfileError] = useState("");
+  const [datapackMode, setDatapackMode] = useState<DatapackMode>(viewer?.datapackMode || "default");
+  const [datapackSaving, setDatapackSaving] = useState(false);
+  const [datapackNotice, setDatapackNotice] = useState("");
+  const [datapackError, setDatapackError] = useState("");
   const avatarInputRef = useRef<HTMLInputElement>(null);
 
   async function saveAvatar(avatarDataUrl: string | null) {
@@ -1232,6 +1276,32 @@ function ProfileView({ user, viewer, loading, onAchievements, onProfileUpdated, 
     await saveSoccerverseAccount(soccerverseUsername);
   }
 
+  async function submitDatapackMode(event: FormEvent) {
+    event.preventDefault();
+    setDatapackSaving(true);
+    setDatapackNotice("");
+    setDatapackError("");
+    try {
+      const response = await fetch("/api/profile", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ datapackMode }),
+      });
+      const payload = await response.json() as { datapackMode?: DatapackMode; error?: string };
+      if (!response.ok) throw new Error(payload.error || "Datapack source could not be saved");
+      const savedMode = payload.datapackMode || "default";
+      setDatapackMode(savedMode);
+      setDatapackNotice(savedMode === "community"
+        ? "Community club crests are now active for the Spotlight."
+        : "Soccerverse standard crests are now active.");
+      await onProfileUpdated();
+    } catch (error) {
+      setDatapackError(error instanceof Error ? error.message : "Datapack source could not be saved");
+    } finally {
+      setDatapackSaving(false);
+    }
+  }
+
   if (!user) return <section className="inner-page signed-out-profile"><UserCircle size={72} weight="duotone" /><h1>Your season<br />starts here.</h1><p>Sign in to keep every prediction, point and badge together.</p><button onClick={onSignIn}><SignInIcon size={18} weight="bold" /> Sign in or create an account</button></section>;
   const stats = viewer?.stats || { points: 0, exactScores: 0, accuracy: 0, countries: 0, predictions: 0 };
   return (
@@ -1249,18 +1319,41 @@ function ProfileView({ user, viewer, loading, onAchievements, onProfileUpdated, 
         <div className="profile-actions">{viewer?.participantId && <a href={`/players/${encodeURIComponent(viewer.participantId)}`}>View public profile <ArrowSquareOut size={18} /></a>}<button onClick={onAchievements}>View achievements <ArrowRight size={18} /></button><button className="sign-out-button" onClick={() => authClient.signOut()}><SignOut size={18} /> Sign out</button></div>
       </div>
       <section className="profile-connection" aria-labelledby="soccerverse-account-title">
-        <div><SoccerBall size={28} weight="duotone" /><div><h2 id="soccerverse-account-title">Your Soccerverse account</h2><p>Add your in-game username so players can open your public Soccerverse profile from the leaderboard.</p></div></div>
-        <form onSubmit={submitSoccerverseAccount}>
-          <label htmlFor="soccerverse-username">Soccerverse username</label>
-          <div className="profile-connection-control">
-            <input id="soccerverse-username" value={soccerverseUsername} onChange={(event) => setSoccerverseUsername(event.target.value)} placeholder="For example: klo" autoComplete="off" disabled={profileSaving} />
-            <button type="submit" disabled={profileSaving}>{profileSaving ? "Checking..." : "Save account"}</button>
-            {savedSoccerverseUsername && <button className="remove-account" type="button" onClick={() => void saveSoccerverseAccount("")} disabled={profileSaving}>Remove</button>}
-          </div>
-          <small>You can also paste your Soccerverse profile URL. This public link never grants access to your game account.</small>
-          {profileNotice && <span className="profile-form-notice success" role="status">{profileNotice}</span>}
-          {profileError && <span className="profile-form-notice error" role="alert">{profileError}</span>}
-        </form>
+        <div className="profile-connection-copy"><SoccerBall size={28} weight="duotone" /><div><h2 id="soccerverse-account-title">Your Soccerverse account</h2><p>Add your in-game username and choose which club crests appear in the weekly Spotlight.</p></div></div>
+        <div className="profile-settings-forms">
+          <form onSubmit={submitSoccerverseAccount}>
+            <label htmlFor="soccerverse-username">Soccerverse username</label>
+            <div className="profile-connection-control">
+              <input id="soccerverse-username" value={soccerverseUsername} onChange={(event) => setSoccerverseUsername(event.target.value)} placeholder="For example: klo" autoComplete="off" disabled={profileSaving} />
+              <button type="submit" disabled={profileSaving}>{profileSaving ? "Checking..." : "Save account"}</button>
+              {savedSoccerverseUsername && <button className="remove-account" type="button" onClick={() => void saveSoccerverseAccount("")} disabled={profileSaving}>Remove</button>}
+            </div>
+            <small>You can also paste your Soccerverse profile URL. This public link never grants access to your game account.</small>
+            {profileNotice && <span className="profile-form-notice success" role="status">{profileNotice}</span>}
+            {profileError && <span className="profile-form-notice error" role="alert">{profileError}</span>}
+          </form>
+          <form className="datapack-settings" onSubmit={submitDatapackMode}>
+            <fieldset>
+              <legend>Datapack source</legend>
+              <div className="datapack-options">
+                <label className={datapackMode === "default" ? "datapack-option active" : "datapack-option"}>
+                  <input type="radio" name="datapack-mode" value="default" checked={datapackMode === "default"} onChange={() => setDatapackMode("default")} disabled={datapackSaving} />
+                  <span><strong>Soccerverse standard</strong><small>Keep the current Spotlight shields.</small></span>
+                </label>
+                <label className={datapackMode === "community" ? "datapack-option active" : "datapack-option"}>
+                  <input type="radio" name="datapack-mode" value="community" checked={datapackMode === "community"} onChange={() => setDatapackMode("community")} disabled={datapackSaving} />
+                  <span><strong>Community pack</strong><small>Show real club crests from El Rincón.</small></span>
+                </label>
+              </div>
+            </fieldset>
+            <div className="datapack-save-row">
+              <small>Only the two crest images for the current match are requested. The full datapack is never downloaded.</small>
+              <button type="submit" disabled={datapackSaving}>{datapackSaving ? "Saving..." : "Save display source"}</button>
+            </div>
+            {datapackNotice && <span className="profile-form-notice success" role="status">{datapackNotice}</span>}
+            {datapackError && <span className="profile-form-notice error" role="alert">{datapackError}</span>}
+          </form>
+        </div>
       </section>
       <div className="profile-stats"><div><strong>{stats.points}</strong><span>Season points</span></div><div><strong>{stats.exactScores}</strong><span>Exact scores</span></div><div><strong>{stats.accuracy}%</strong><span>Result accuracy</span></div><div><strong>{stats.countries}</strong><span>Countries explored</span></div></div>
       <div className="history-panel"><div className="history-heading"><h2>Prediction history</h2><span>{loading ? "Loading" : `${stats.predictions} prediction${stats.predictions === 1 ? "" : "s"}`}</span></div>{viewer?.history.map((item) => <article key={item.matchId}><span>{formatShortDate(item.kickoff * 1000)}</span><div className="history-match"><strong>{item.homeName} {item.result ? `${item.result.homeScore}-${item.result.awayScore}` : "vs"} {item.awayName}</strong><small>Your pick: {item.prediction.homeScore}-{item.prediction.awayScore} · {item.competitionName}</small>{item.score && <div className="history-breakdown">{historyBreakdown(item.score).map(([label, points]) => <i className={points ? "hit" : ""} key={label}>{label} +{points}</i>)}</div>}</div><small>{item.score ? "Settled" : item.result ? "Scoring" : "Pending result"}</small><b>{item.score ? `+${item.score.totalPoints}` : "-"}</b></article>)}{!loading && !viewer?.history.length && <SeasonEmpty title="No predictions yet" description="Your first locked spotlight will appear here immediately." />}</div>

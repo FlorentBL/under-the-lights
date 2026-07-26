@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { env } from "cloudflare:workers";
+import { communityClubLogoUrl } from "@/lib/datapack";
 
 export async function GET() {
   const db = (env as Cloudflare.Env).DB;
@@ -29,6 +30,8 @@ export async function GET() {
     competitionName: row.competition_name,
     homeClubId: row.home_club_id,
     awayClubId: row.away_club_id,
+    homeCommunityLogoUrl: communityClubLogoUrl(row.home_club_id),
+    awayCommunityLogoUrl: communityClubLogoUrl(row.away_club_id),
     homeName: row.home_name,
     awayName: row.away_name,
     homePosition: row.home_position,
