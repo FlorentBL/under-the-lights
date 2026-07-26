@@ -258,6 +258,9 @@ test("lets participants choose community crests without downloading the full dat
   assert.match(app, /homeCommunityLogoUrl/);
   assert.match(profileRoute, /parseDatapackMode/);
   assert.match(profileRoute, /datapack_mode/);
+  assert.match(profileRoute, /CASE WHEN \? THEN excluded\.datapack_mode ELSE user_profiles\.datapack_mode END/);
+  assert.match(profileRoute, /updatesDatapack \? 1 : 0/);
+  assert.match(profileRoute, /WHERE user_id = \? AND soccerverse_username = '' AND avatar_data_url IS NULL AND datapack_mode = 'default'/);
   assert.match(spotlightRoute, /communityClubLogoUrl/);
   assert.match(seasonData, /normalizeDatapackMode/);
   assert.match(schema, /datapackMode/);

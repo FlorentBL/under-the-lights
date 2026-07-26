@@ -104,26 +104,34 @@ export async function PUT(request: Request) {
     }
   }
 
-  if (!soccerverseUsername && !avatarDataUrl && datapackMode === "default") {
-    await db.prepare("DELETE FROM user_profiles WHERE user_id = ?").bind(user.id).run();
-    return NextResponse.json(profilePayload(user, null));
-  }
-
   const now = Date.now();
   await db.prepare(`
     INSERT INTO user_profiles (user_id, soccerverse_username, avatar_data_url, datapack_mode, created_at, updated_at)
     VALUES (?, ?, ?, ?, ?, ?)
     ON CONFLICT(user_id) DO UPDATE SET
-      soccerverse_username = excluded.soccerverse_username,
-      avatar_data_url = excluded.avatar_data_url,
-      datapack_mode = excluded.datapack_mode,
+      soccerverse_username = CASE WHEN ? THEN excluded.soccerverse_username ELSE user_profiles.soccerverse_username END,
+      avatar_data_url = CASE WHEN ? THEN excluded.avatar_data_url ELSE user_profiles.avatar_data_url END,
+      datapack_mode = CASE WHEN ? THEN excluded.datapack_mode ELSE user_profiles.datapack_mode END,
       updated_at = excluded.updated_at
-  `).bind(user.id, soccerverseUsername, avatarDataUrl, datapackMode, now, now).run();
+  `).bind(
+    user.id,
+    soccerverseUsername,
+    avatarDataUrl,
+    datapackMode,
+    now,
+    now,
+    updatesSoccerverse ? 1 : 0,
+    updatesAvatar ? 1 : 0,
+    updatesDatapack ? 1 : 0,
+  ).run();
 
-  return NextResponse.json(profilePayload(user, {
-    soccerverse_username: soccerverseUsername,
-    avatar_data_url: avatarDataUrl,
-    datapack_mode: datapackMode,
-    updated_at: now,
-  }));
+  await db.prepare(`DELETE FROM user_profiles
+    WHERE user_id = ? AND soccerverse_username = '' AND avatar_data_url IS NULL AND datapack_mode = 'default'`)
+    .bind(user.id)
+    .run();
+  const saved = await db.prepare(
+    "SELECT soccerverse_username, avatar_data_url, datapack_mode, updated_at FROM user_profiles WHERE user_id = ?",
+  ).bind(user.id).first<StoredProfile>();
+
+  return NextResponse.json(profilePayload(user, saved));
 }
