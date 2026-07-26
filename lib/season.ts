@@ -1,4 +1,5 @@
 import type { GoalWindow, ScoreBreakdown, ScorablePrediction } from "./scoring.ts";
+import type { DatapackMode } from "./datapack.ts";
 
 export const BADGE_DEFINITIONS = [
   { key: "bullseye", name: "Bullseye", description: "Predict an exact score", target: 1 },
@@ -61,6 +62,7 @@ export type SeasonViewer = {
   avatarUrl: string | null;
   hasCustomAvatar: boolean;
   soccerverseUsername: string | null;
+  datapackMode: DatapackMode;
   stats: {
     points: number;
     exactScores: number;
