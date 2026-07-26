@@ -119,7 +119,6 @@ export async function sendAuthEmail(
   });
 
   if (!response.ok) {
-    const detail = await response.text();
-    throw new Error(`Resend rejected the authentication email (${response.status}): ${detail.slice(0, 300)}`);
+    throw new Error(`Resend rejected the authentication email (${response.status})`);
   }
 }

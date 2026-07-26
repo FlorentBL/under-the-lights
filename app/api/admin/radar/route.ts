@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { env } from "cloudflare:workers";
 import { requireAdmin } from "@/lib/admin-auth";
+import { jsonRequestErrorResponse, readJsonObject } from "@/lib/request-validation";
 import { runAndPersistRadar } from "@/lib/soccerverse-radar";
 
 function normalizeCandidate(row: Record<string, unknown>) {
@@ -64,10 +65,22 @@ export async function GET(request: Request) {
 export async function POST(request: Request) {
   const access = await requireAdmin(request);
   if (!access.ok) return NextResponse.json({ error: access.error }, { status: access.status });
-  const payload = await request.json().catch(() => ({})) as { reference?: string };
-  const reference = payload.reference && /^\d{4}-\d{2}-\d{2}$/.test(payload.reference)
-    ? new Date(`${payload.reference}T12:00:00Z`)
-    : new Date();
+  let payload: Record<string, unknown>;
+  try {
+    payload = await readJsonObject(request);
+  } catch (error) {
+    return jsonRequestErrorResponse(error);
+  }
+  if (payload.reference !== undefined
+    && (typeof payload.reference !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(payload.reference))) {
+    return NextResponse.json({ error: "Reference must be an ISO date" }, { status: 400 });
+  }
+  const requestedDate = typeof payload.reference === "string" ? payload.reference : null;
+  const reference = requestedDate ? new Date(`${requestedDate}T12:00:00Z`) : new Date();
+  if (Number.isNaN(reference.getTime())
+    || (requestedDate && reference.toISOString().slice(0, 10) !== requestedDate)) {
+    return NextResponse.json({ error: "Reference must be a valid date" }, { status: 400 });
+  }
   try {
     const result = await runAndPersistRadar((env as Cloudflare.Env).DB, access.session.user.id, reference);
     return NextResponse.json({ ok: true, runId: result.runId, weekKey: result.weekKey, candidates: result.candidates.length });

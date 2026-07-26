@@ -17,7 +17,9 @@ Players predict the score, first goalscorer, scoring window, and match events. C
 
 ## Admin control room
 
-The private control room lives at `/admin`. Access is restricted to authenticated accounts whose email appears in the comma-separated `ADMIN_EMAILS` Worker variable.
+The private control room lives at `/admin`. Access is restricted to authenticated,
+email-verified accounts whose address appears in the comma-separated `ADMIN_EMAILS`
+Worker variable.
 
 ```bash
 ADMIN_EMAILS=first@example.com,second@example.com
@@ -26,7 +28,8 @@ ADMIN_EMAILS=first@example.com,second@example.com
 Email verification and password recovery use Resend. Set `RESEND_API_KEY` and a verified
 sender such as `AUTH_EMAIL_FROM=Under the Lights <auth@example.com>` as Worker secrets.
 `AUTH_EMAIL_REPLY_TO` is optional. Until both required values exist, existing email/password
-authentication remains available without verification and password recovery stays hidden.
+authentication remains available without verification and password recovery stays hidden,
+but those unverified accounts can never receive administrator access.
 
 From the control room, an administrator can scan the next Soccerverse weekend, inspect the ranked shortlist, edit the match story and publish the selected fixture. The public spotlight updates from the published D1 record.
 
@@ -44,6 +47,14 @@ npm run dev
 The application runs as a full-stack Cloudflare Worker and uses a D1 binding named `DB` for persistent data.
 
 Authentication is provided by Better Auth. Email/password accounts work out of the box. Discord OAuth is enabled when `DISCORD_CLIENT_ID` and `DISCORD_CLIENT_SECRET` are configured as Worker secrets.
+
+Generate a random authentication secret of at least 32 characters and store it outside
+source control. Production values belong in Cloudflare Worker secrets; local values belong
+in the ignored `.dev.vars` file copied from `.dev.vars.example`.
+
+```bash
+npx wrangler secret put BETTER_AUTH_SECRET
+```
 
 ## Cloudflare development
 

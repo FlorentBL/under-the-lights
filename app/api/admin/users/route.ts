@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { env } from "cloudflare:workers";
-import { isAdminEmail, requireAdmin } from "@/lib/admin-auth";
+import { isConfiguredAdmin, requireAdmin } from "@/lib/admin-auth";
+import { jsonRequestErrorResponse, readJsonObject } from "@/lib/request-validation";
 
 type UserRow = {
   id: string;
@@ -50,7 +51,10 @@ export async function GET(request: Request) {
   `).all<UserRow>();
 
   const normalized = (users.results || []).map((user) => {
-    const roleSource = isAdminEmail(user.email) ? "configured" : user.delegated_admin_id ? "delegated" : null;
+    const roleSource = isConfiguredAdmin({
+      email: user.email,
+      emailVerified: Boolean(user.email_verified),
+    }) ? "configured" : user.delegated_admin_id && user.email_verified ? "delegated" : null;
     return {
       id: user.id,
       name: user.name,
@@ -89,7 +93,12 @@ export async function PATCH(request: Request) {
   const access = await requireAdmin(request);
   if (!access.ok) return NextResponse.json({ error: access.error }, { status: access.status });
 
-  const body = await request.json().catch(() => null) as RoleUpdate | null;
+  let body: RoleUpdate;
+  try {
+    body = await readJsonObject(request);
+  } catch (error) {
+    return jsonRequestErrorResponse(error);
+  }
   const userId = typeof body?.userId === "string" ? body.userId.trim() : "";
   const role = body?.role;
   if (!userId || (role !== "admin" && role !== "player")) {
@@ -97,12 +106,19 @@ export async function PATCH(request: Request) {
   }
 
   const db = (env as Cloudflare.Env).DB;
-  const target = await db.prepare("SELECT id, email FROM user WHERE id = ? LIMIT 1")
+  const target = await db.prepare("SELECT id, email, email_verified FROM user WHERE id = ? LIMIT 1")
     .bind(userId)
-    .first<{ id: string; email: string }>();
+    .first<{ id: string; email: string; email_verified: number }>();
   if (!target) return NextResponse.json({ error: "User not found" }, { status: 404 });
+  const targetIsConfiguredAdmin = isConfiguredAdmin({
+    email: target.email,
+    emailVerified: Boolean(target.email_verified),
+  });
 
-  if (role === "player" && isAdminEmail(target.email)) {
+  if (role === "admin" && !target.email_verified) {
+    return NextResponse.json({ error: "Verify the user's email before granting administrator access" }, { status: 400 });
+  }
+  if (role === "player" && targetIsConfiguredAdmin) {
     return NextResponse.json({ error: "Configured administrators cannot be demoted here" }, { status: 400 });
   }
   if (role === "player" && target.id === access.session.user.id) {
@@ -122,6 +138,6 @@ export async function PATCH(request: Request) {
   return NextResponse.json({
     userId: target.id,
     role,
-    roleSource: role === "admin" ? (isAdminEmail(target.email) ? "configured" : "delegated") : null,
+    roleSource: role === "admin" ? (targetIsConfiguredAdmin ? "configured" : "delegated") : null,
   });
 }

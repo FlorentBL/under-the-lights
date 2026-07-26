@@ -1,7 +1,8 @@
 import { NextResponse } from "next/server";
 import { env } from "cloudflare:workers";
 import { auth } from "@/lib/auth";
-import { parseAvatarDataUrl, publicAvatarUrl } from "@/lib/profile-avatar";
+import { MAX_AVATAR_DATA_URL_LENGTH, parseAvatarDataUrl, publicAvatarUrl } from "@/lib/profile-avatar";
+import { jsonRequestErrorResponse, readJsonObject } from "@/lib/request-validation";
 import { resolveSoccerverseUsername } from "@/lib/soccerverse-profile";
 
 type StoredProfile = {
@@ -42,18 +43,15 @@ export async function GET(request: Request) {
 export async function PUT(request: Request) {
   const user = await requireUser(request);
   if (!user) return NextResponse.json({ error: "Authentication required" }, { status: 401 });
-  const contentLength = Number(request.headers.get("content-length") || 0);
-  if (contentLength > 260_000) {
-    return NextResponse.json({ error: "Profile photo is too large" }, { status: 413 });
+  let body: Record<string, unknown>;
+  try {
+    body = await readJsonObject(request, MAX_AVATAR_DATA_URL_LENGTH + 16_384);
+  } catch (error) {
+    return jsonRequestErrorResponse(error);
   }
-
-  const body = await request.json().catch(() => null) as {
-    soccerverseUsername?: unknown;
-    avatarDataUrl?: unknown;
-  } | null;
-  const updatesSoccerverse = Boolean(body && Object.hasOwn(body, "soccerverseUsername"));
-  const updatesAvatar = Boolean(body && Object.hasOwn(body, "avatarDataUrl"));
-  if (!body || (!updatesSoccerverse && !updatesAvatar)) {
+  const updatesSoccerverse = Object.hasOwn(body, "soccerverseUsername");
+  const updatesAvatar = Object.hasOwn(body, "avatarDataUrl");
+  if (!updatesSoccerverse && !updatesAvatar) {
     return NextResponse.json({ error: "No profile change supplied" }, { status: 400 });
   }
 

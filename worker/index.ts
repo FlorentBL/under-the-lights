@@ -21,6 +21,28 @@ interface ExecutionContext {
   passThroughOnException(): void;
 }
 
+const PRIVATE_API_PREFIXES = ["/api/admin/", "/api/predictions", "/api/profile", "/api/season"];
+
+function secureResponse(response: Response, url: URL) {
+  const headers = new Headers(response.headers);
+  headers.set("Content-Security-Policy", "base-uri 'self'; frame-ancestors 'none'; object-src 'none'; form-action 'self'");
+  headers.set("Permissions-Policy", "camera=(), geolocation=(), microphone=()");
+  headers.set("Referrer-Policy", "strict-origin-when-cross-origin");
+  headers.set("X-Content-Type-Options", "nosniff");
+  headers.set("X-Frame-Options", "DENY");
+  if (url.protocol === "https:") {
+    headers.set("Strict-Transport-Security", "max-age=31536000");
+  }
+  if (PRIVATE_API_PREFIXES.some((prefix) => url.pathname === prefix || url.pathname.startsWith(prefix))) {
+    headers.set("Cache-Control", "private, no-store");
+  }
+  return new Response(response.body, {
+    status: response.status,
+    statusText: response.statusText,
+    headers,
+  });
+}
+
 // Image security config. SVG sources with .svg extension auto-skip the
 // optimization endpoint on the client side (served directly, no proxy).
 // To route SVGs through the optimizer (with security headers), set
@@ -30,26 +52,31 @@ interface ExecutionContext {
 const worker = {
   async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
     const url = new URL(request.url);
+    let response: Response;
 
     if (url.pathname === "/_vinext/image") {
       const images = env.IMAGES;
       if (!images) {
         const source = url.searchParams.get("url");
-        if (!source) return new Response("Missing image URL", { status: 400 });
-        return env.ASSETS.fetch(new Request(new URL(source, request.url)));
+        response = source
+          ? await env.ASSETS.fetch(new Request(new URL(source, request.url)))
+          : new Response("Missing image URL", { status: 400 });
+        return secureResponse(response, url);
       }
 
       const allowedWidths = [...DEFAULT_DEVICE_SIZES, ...DEFAULT_IMAGE_SIZES];
-      return handleImageOptimization(request, {
+      response = await handleImageOptimization(request, {
         fetchAsset: (path) => env.ASSETS.fetch(new Request(new URL(path, request.url))),
         transformImage: async (body, { width, format, quality }) => {
           const result = await images.input(body).transform(width > 0 ? { width } : {}).output({ format, quality });
           return result.response();
         },
       }, allowedWidths);
+      return secureResponse(response, url);
     }
 
-    return handler.fetch(request, env, ctx);
+    response = await handler.fetch(request, env, ctx);
+    return secureResponse(response, url);
   },
   async scheduled(controller: ScheduledController, env: Env, ctx: ExecutionContext) {
     if (controller.cron === "0 7 * * 1") {

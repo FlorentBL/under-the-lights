@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { env } from "cloudflare:workers";
 import { GOAL_WINDOWS, NO_GOAL, validatePredictionConsistency, type GoalWindow } from "@/lib/scoring";
+import { jsonRequestErrorResponse, readJsonObject } from "@/lib/request-validation";
 
 async function publishedMatch(db: D1Database, matchId: string) {
   return db.prepare(`SELECT c.kickoff, c.home_club_id, c.away_club_id
@@ -46,15 +47,26 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Authentication required" }, { status: 401 });
   }
 
-  const payload = await request.json() as Record<string, unknown>;
-  const matchId = String(payload.matchId || "").slice(0, 80);
-  const homeScore = Number(payload.homeScore);
-  const awayScore = Number(payload.awayScore);
-  const firstScorer = String(payload.firstScorer || "").slice(0, 80);
-  const goalWindow = String(payload.goalWindow || "").slice(0, 20);
-  const firstTeam = String(payload.firstTeam || "").slice(0, 80);
+  let payload: Record<string, unknown>;
+  try {
+    payload = await readJsonObject(request);
+  } catch (error) {
+    return jsonRequestErrorResponse(error);
+  }
+  const matchId = typeof payload.matchId === "string" ? payload.matchId : "";
+  const homeScore = payload.homeScore;
+  const awayScore = payload.awayScore;
+  const firstScorer = typeof payload.firstScorer === "string" ? payload.firstScorer : "";
+  const goalWindow = typeof payload.goalWindow === "string" ? payload.goalWindow : "";
+  const firstTeam = typeof payload.firstTeam === "string" ? payload.firstTeam : "";
 
-  if (!matchId || !Number.isInteger(homeScore) || !Number.isInteger(awayScore) || homeScore < 0 || awayScore < 0 || homeScore > 9 || awayScore > 9
+  if (!/^\d{1,20}$/.test(matchId)
+    || typeof homeScore !== "number" || !Number.isInteger(homeScore)
+    || typeof awayScore !== "number" || !Number.isInteger(awayScore)
+    || homeScore < 0 || awayScore < 0
+    || homeScore > 9 || awayScore > 9
+    || firstScorer.length < 1 || firstScorer.length > 80
+    || firstTeam.length < 1 || firstTeam.length > 80
     || !GOAL_WINDOWS.includes(goalWindow as GoalWindow)) {
     return NextResponse.json({ error: "Invalid prediction" }, { status: 400 });
   }
