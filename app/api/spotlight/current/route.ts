@@ -1,12 +1,16 @@
 import { NextResponse } from "next/server";
 import { env } from "cloudflare:workers";
-import { communityClubLogoUrl } from "@/lib/datapack";
+import {
+  DEFAULT_SOCCERVERSE_CLUB_IMAGE_URL,
+  soccerverseClubLogoUrl,
+} from "@/lib/soccerverse-datapack";
 
 export async function GET() {
   const db = (env as Cloudflare.Env).DB;
   const row = await db.prepare(`SELECT s.editorial_title, s.editorial_summary, s.week_key,
       c.fixture_id, c.competition_id, c.division_level, c.kickoff, c.country_code, c.competition_name,
       c.home_club_id, c.away_club_id, c.home_name, c.away_name,
+      c.home_logo_url, c.away_logo_url, c.home_color, c.away_color,
       c.home_position, c.away_position, c.home_points, c.away_points,
       c.home_record, c.away_record, c.home_manager, c.away_manager,
       c.home_strength, c.away_strength, c.reasons
@@ -30,10 +34,12 @@ export async function GET() {
     competitionName: row.competition_name,
     homeClubId: row.home_club_id,
     awayClubId: row.away_club_id,
-    homeCommunityLogoUrl: communityClubLogoUrl(row.home_club_id),
-    awayCommunityLogoUrl: communityClubLogoUrl(row.away_club_id),
     homeName: row.home_name,
     awayName: row.away_name,
+    homeLogoUrl: row.home_logo_url || soccerverseClubLogoUrl(DEFAULT_SOCCERVERSE_CLUB_IMAGE_URL, Number(row.home_club_id)),
+    awayLogoUrl: row.away_logo_url || soccerverseClubLogoUrl(DEFAULT_SOCCERVERSE_CLUB_IMAGE_URL, Number(row.away_club_id)),
+    homeColor: row.home_color,
+    awayColor: row.away_color,
     homePosition: row.home_position,
     awayPosition: row.away_position,
     homePoints: row.home_points,

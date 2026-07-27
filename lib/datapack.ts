@@ -4,7 +4,7 @@ export const COMMUNITY_CLUB_LOGO_BASE_URL = "https://elrincondeldt.com/sv/photos
 export type DatapackMode = "default" | "community";
 
 export function normalizeDatapackMode(value: unknown): DatapackMode {
-  return value === "community" ? "community" : "default";
+  return value === "default" ? "default" : "community";
 }
 
 export function parseDatapackMode(value: unknown): DatapackMode {

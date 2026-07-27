@@ -55,11 +55,18 @@ export const adminUsers = sqliteTable("admin_users", {
   createdAt: integer("created_at").notNull(),
 }, (table) => [index("admin_users_created_at_idx").on(table.createdAt)]);
 
+export const appSettings = sqliteTable("app_settings", {
+  key: text("key").primaryKey(),
+  value: text("value").notNull(),
+  updatedBy: text("updated_by").notNull(),
+  updatedAt: integer("updated_at").notNull(),
+}, (table) => [index("app_settings_updated_at_idx").on(table.updatedAt)]);
+
 export const userProfiles = sqliteTable("user_profiles", {
   userId: text("user_id").primaryKey().references(() => user.id, { onDelete: "cascade" }),
   soccerverseUsername: text("soccerverse_username").notNull(),
   avatarDataUrl: text("avatar_data_url"),
-  datapackMode: text("datapack_mode").default("default").notNull(),
+  datapackMode: text("datapack_mode").default("community").notNull(),
   createdAt: integer("created_at").notNull(),
   updatedAt: integer("updated_at").notNull(),
 }, (table) => [index("user_profiles_soccerverse_username_idx").on(table.soccerverseUsername)]);
@@ -115,6 +122,10 @@ export const spotlightCandidates = sqliteTable("spotlight_candidates", {
   awayClubId: integer("away_club_id").notNull(),
   homeName: text("home_name").notNull(),
   awayName: text("away_name").notNull(),
+  homeLogoUrl: text("home_logo_url"),
+  awayLogoUrl: text("away_logo_url"),
+  homeColor: text("home_color"),
+  awayColor: text("away_color"),
   homePosition: integer("home_position"),
   awayPosition: integer("away_position"),
   homePoints: integer("home_points"),

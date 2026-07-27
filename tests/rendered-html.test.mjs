@@ -39,14 +39,15 @@ test("ships the Under the Lights product surface", async () => {
 });
 
 test("includes durable prediction storage and brand assets", async () => {
-  const [route, hosting, schema] = await Promise.all([
+  const [route, wrangler, schema] = await Promise.all([
     readFile(new URL("../app/api/predictions/route.ts", import.meta.url), "utf8"),
-    readFile(new URL("../.openai/hosting.json", import.meta.url), "utf8"),
+    readFile(new URL("../wrangler.jsonc", import.meta.url), "utf8"),
     readFile(new URL("../db/schema.ts", import.meta.url), "utf8"),
   ]);
 
   assert.match(route, /ON CONFLICT\(participant_id, match_id\)/);
-  assert.match(hosting, /"d1": "DB"/);
+  assert.match(wrangler, /"binding": "DB"/);
+  assert.match(wrangler, /https:\/\/under-the-lights\.flobl\.workers\.dev/);
   assert.match(schema, /prediction_participant_match_idx/);
   await access(new URL("../public/logo.png", import.meta.url));
   await access(new URL("../public/og.png", import.meta.url));
@@ -66,7 +67,63 @@ test("uses a visual Soccerverse player picker", async () => {
   assert.match(spotlightRoute, /player_webp/);
   assert.match(spotlightRoute, /competition_id/);
   assert.match(spotlightRoute, /division_level/);
+  assert.match(spotlightRoute, /homeLogoUrl/);
+  assert.match(app, /alt=\{`\$\{name\} logo`\}/);
   assert.doesNotMatch(app, /<select value=\{prediction\.firstScorer\}/);
+});
+
+test("lets administrators validate and synchronize the Soccerverse datapack", async () => {
+  const [adminPanel, route, datapack, schema, migration] = await Promise.all([
+    readFile(new URL("../app/admin/admin-panel.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../app/api/admin/datapack/route.ts", import.meta.url), "utf8"),
+    readFile(new URL("../lib/soccerverse-datapack.ts", import.meta.url), "utf8"),
+    readFile(new URL("../db/schema.ts", import.meta.url), "utf8"),
+    readFile(new URL("../drizzle/0009_admin_settings.sql", import.meta.url), "utf8"),
+  ]);
+
+  assert.match(adminPanel, /Data sources/);
+  assert.match(adminPanel, /Save and sync/);
+  assert.match(route, /validateSoccerverseDatapack/);
+  assert.match(route, /syncSpotlightPlayers/);
+  assert.match(datapack, /soccerverse_datapack_url/);
+  assert.match(datapack, /ClubData/);
+  assert.match(schema, /appSettings/);
+  assert.match(schema, /homeLogoUrl/);
+  assert.match(migration, /CREATE TABLE `app_settings`/);
+  await access(new URL("../drizzle/0010_club_metadata.sql", import.meta.url));
+});
+
+test("restores the PR 19 personal datapack display setting", async () => {
+  const [app, profileRoute, seasonData, schema, migration, css] = await Promise.all([
+    readFile(new URL("../app/under-the-lights-app.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../app/api/profile/route.ts", import.meta.url), "utf8"),
+    readFile(new URL("../lib/season-data.ts", import.meta.url), "utf8"),
+    readFile(new URL("../db/schema.ts", import.meta.url), "utf8"),
+    readFile(new URL("../drizzle/0011_datapack_preferences.sql", import.meta.url), "utf8"),
+    readFile(new URL("../app/globals.css", import.meta.url), "utf8"),
+  ]);
+
+  assert.match(app, /Datapack source/);
+  assert.match(app, /Community pack/);
+  assert.match(app, /Save display source/);
+  assert.match(profileRoute, /parseDatapackMode/);
+  assert.match(profileRoute, /datapack_mode/);
+  assert.match(seasonData, /normalizeDatapackMode/);
+  assert.match(schema, /datapackMode/);
+  assert.match(migration, /ADD COLUMN `datapack_mode`/);
+  assert.match(css, /\.profile-identity/);
+  assert.match(css, /overflow-wrap: anywhere/);
+  assert.match(css, /\.datapack-options, \.datapack-save-row/);
+});
+
+test("shows a complete post-match review and refreshes settled data", async () => {
+  const app = await readFile(new URL("../app/under-the-lights-app.tsx", import.meta.url), "utf8");
+
+  assert.match(app, /function PostMatchRecap/);
+  assert.match(app, /Your match review/);
+  assert.match(app, /New achievements/);
+  assert.match(app, /window\.setInterval\(refreshResult, 15_000\)/);
+  assert.match(app, /spotlight\.result\?\.settledAt/);
 });
 
 test("uses live season data instead of demo standings and histories", async () => {
@@ -239,33 +296,4 @@ test("lets participants upload a safe custom profile photo", async () => {
   assert.match(seasonData, /publicAvatarUrl/);
   assert.match(schema, /avatarDataUrl/);
   assert.match(migration, /ADD COLUMN `avatar_data_url`/);
-});
-
-test("lets participants choose community crests without downloading the full datapack", async () => {
-  const [app, profileRoute, spotlightRoute, seasonData, schema, migration, datapack] = await Promise.all([
-    readFile(new URL("../app/under-the-lights-app.tsx", import.meta.url), "utf8"),
-    readFile(new URL("../app/api/profile/route.ts", import.meta.url), "utf8"),
-    readFile(new URL("../app/api/spotlight/current/route.ts", import.meta.url), "utf8"),
-    readFile(new URL("../lib/season-data.ts", import.meta.url), "utf8"),
-    readFile(new URL("../db/schema.ts", import.meta.url), "utf8"),
-    readFile(new URL("../drizzle/0009_datapack_preferences.sql", import.meta.url), "utf8"),
-    readFile(new URL("../lib/datapack.ts", import.meta.url), "utf8"),
-  ]);
-
-  assert.match(app, /Datapack source/);
-  assert.match(app, /Community pack/);
-  assert.match(app, /The full datapack is never downloaded/);
-  assert.match(app, /homeCommunityLogoUrl/);
-  assert.match(profileRoute, /parseDatapackMode/);
-  assert.match(profileRoute, /datapack_mode/);
-  assert.match(profileRoute, /readJsonObject\(request, MAX_AVATAR_DATA_URL_LENGTH \+ 16_384\)/);
-  assert.match(profileRoute, /CASE WHEN \? THEN excluded\.datapack_mode ELSE user_profiles\.datapack_mode END/);
-  assert.match(profileRoute, /updatesDatapack \? 1 : 0/);
-  assert.match(profileRoute, /WHERE user_id = \? AND soccerverse_username = '' AND avatar_data_url IS NULL AND datapack_mode = 'default'/);
-  assert.match(spotlightRoute, /communityClubLogoUrl/);
-  assert.match(seasonData, /normalizeDatapackMode/);
-  assert.match(schema, /datapackMode/);
-  assert.match(migration, /ADD COLUMN `datapack_mode`/);
-  assert.match(datapack, /https:\/\/elrincondeldt\.com\/sv\/photos\/teams\//);
-  assert.doesNotMatch(spotlightRoute, /rincon_s4\.json/);
 });

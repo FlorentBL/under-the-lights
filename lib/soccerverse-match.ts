@@ -1,6 +1,7 @@
 import { GOAL_WINDOWS, NO_GOAL, goalWindowForMinute, scorePrediction, type GoalWindow } from "@/lib/scoring";
 import { resultMayBeAvailable } from "@/lib/soccerverse-timing";
 import { validGoals, type MatchEvent } from "@/lib/soccerverse-events";
+import { loadSoccerversePlayerNames } from "@/lib/soccerverse-datapack";
 import { awardParticipantBadges } from "@/lib/season-data";
 import {
   activePlayerClubId,
@@ -11,7 +12,6 @@ import {
 
 const GSP_URL = "https://services.soccerverse.com/gsp/";
 const REST_URL = "https://services.soccerverse.com/api";
-const DATAPACK_URL = "https://downloads.soccerverse.com/svpack/packv2/default.json";
 const GAME_WORLD_ID = 1;
 
 type GspResponse<T> = { result?: { data?: T }; error?: { message?: string } };
@@ -21,7 +21,6 @@ type SquadPlayer = SoccerverseSquadPlayer & {
   position?: number | null;
   rating?: number | null;
 };
-type PlayerName = { id: string; f?: string; s?: string };
 type FixtureResult = {
   home_club: number;
   away_club: number;
@@ -68,19 +67,11 @@ async function fetchJson<T>(url: string): Promise<T> {
   return response.json() as Promise<T>;
 }
 
-async function playerNames() {
-  const payload = await fetchJson<{ PackData?: { PlayerData?: { P?: PlayerName[] } } }>(DATAPACK_URL);
-  return new Map((payload.PackData?.PlayerData?.P || []).map((player) => [
-    Number(player.id),
-    `${player.f || ""} ${player.s || ""}`.replace(/\s+/g, " ").trim() || `Player #${player.id}`,
-  ]));
-}
-
 export async function syncSpotlightPlayers(db: D1Database, fixture: PublishedFixture) {
-  const [homeSquad, awaySquad, names] = await Promise.all([
+  const [homeSquad, awaySquad, datapack] = await Promise.all([
     gsp<SquadPlayer[]>("get_squad", { club_id: fixture.homeClubId, game_world_id: GAME_WORLD_ID }),
     gsp<SquadPlayer[]>("get_squad", { club_id: fixture.awayClubId, game_world_id: GAME_WORLD_ID }),
-    playerNames(),
+    loadSoccerversePlayerNames(db),
   ]);
   const availablePlayers = [
     ...playersAvailableForClub(homeSquad, fixture.homeClubId),
@@ -90,7 +81,7 @@ export async function syncSpotlightPlayers(db: D1Database, fixture: PublishedFix
     .map((player) => ({
       playerId: player.player_id,
       clubId: activePlayerClubId(player),
-      name: names.get(player.player_id) || `Player #${player.player_id}`,
+      name: datapack.names.get(player.player_id) || `Player #${player.player_id}`,
       position: player.position ?? null,
       rating: player.rating ?? null,
     }))

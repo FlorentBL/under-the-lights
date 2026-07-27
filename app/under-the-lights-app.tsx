@@ -9,6 +9,7 @@ import {
   CaretDown,
   ChartBar,
   Check,
+  CheckCircle,
   Clock,
   Crosshair,
   Database,
@@ -37,12 +38,13 @@ import {
 import Image from "next/image";
 import { ChangeEvent, FormEvent, useCallback, useEffect, useRef, useState } from "react";
 import { authClient } from "@/lib/auth-client";
+import { LanguageProvider, languages, type Language, useI18n } from "@/lib/i18n";
 import { positionCategories, positionSummary, primaryPositionCategory, type PositionCategory } from "@/lib/player-positions";
 import { MAX_AVATAR_DATA_URL_LENGTH } from "@/lib/profile-avatar";
-import { GOAL_WINDOWS, MAX_PREDICTION_POINTS, NO_GOAL, type GoalWindow, type ScoreBreakdown } from "@/lib/scoring";
+import { allowedFirstTeams, GOAL_WINDOWS, MAX_PREDICTION_POINTS, NO_GOAL, type GoalWindow, type ScoreBreakdown } from "@/lib/scoring";
+import type { PredictionTrends } from "@/lib/prediction-trends";
 import type { BadgeKey, SeasonPayload, SeasonViewer } from "@/lib/season";
 import { soccerverseProfileUrl } from "@/lib/soccerverse-profile";
-import type { DatapackMode } from "@/lib/datapack";
 
 type View = "spotlight" | "how-it-works" | "leaderboard" | "achievements" | "project" | "profile";
 type AuthIntent = "sign-in" | "reset-password" | "verified" | "verification-error" | "reset-error";
@@ -73,12 +75,14 @@ type Spotlight = {
   kickoff: number;
   homeClubId: number;
   awayClubId: number;
-  homeCommunityLogoUrl: string | null;
-  awayCommunityLogoUrl: string | null;
   countryCode: string;
   competitionName: string;
   homeName: string;
   awayName: string;
+  homeLogoUrl: string | null;
+  awayLogoUrl: string | null;
+  homeColor: string | null;
+  awayColor: string | null;
   homePosition: number | null;
   awayPosition: number | null;
   homePoints: number | null;
@@ -111,12 +115,14 @@ const fallbackSpotlight: Spotlight = {
   kickoff: 1785004200,
   homeClubId: 0,
   awayClubId: 0,
-  homeCommunityLogoUrl: null,
-  awayCommunityLogoUrl: null,
   countryCode: "POL",
   competitionName: "I Liga",
   homeName: "Wisła Kraków",
   awayName: "Arka Gdynia",
+  homeLogoUrl: null,
+  awayLogoUrl: null,
+  homeColor: null,
+  awayColor: null,
   homePosition: 2,
   awayPosition: 1,
   homePoints: null,
@@ -165,7 +171,43 @@ function readPendingPrediction(fixtureId: number) {
   }
 }
 
+function coherentPrediction(prediction: Prediction, spotlight: Spotlight): Prediction {
+  if (prediction.homeScore + prediction.awayScore === 0) {
+    return {
+      ...prediction,
+      firstScorer: NO_GOAL,
+      goalWindow: NO_GOAL,
+      firstTeam: NO_GOAL,
+    };
+  }
+
+  const allowedTeams = allowedFirstTeams(
+    prediction.homeScore,
+    prediction.awayScore,
+    String(spotlight.homeClubId),
+    String(spotlight.awayClubId),
+  );
+  const selectedScorer = spotlight.players.find((player) => String(player.id) === prediction.firstScorer);
+  const scorerTeam = selectedScorer ? String(selectedScorer.clubId) : null;
+  const scorerIsPossible = scorerTeam !== null && allowedTeams.includes(scorerTeam);
+  return {
+    ...prediction,
+    firstScorer: scorerIsPossible ? prediction.firstScorer : "",
+    goalWindow: prediction.goalWindow === NO_GOAL ? "1-15" : prediction.goalWindow,
+    firstTeam: scorerIsPossible
+      ? scorerTeam
+      : allowedTeams.includes(prediction.firstTeam)
+        ? prediction.firstTeam
+        : allowedTeams[0],
+  };
+}
+
 export function UnderTheLightsApp() {
+  return <LanguageProvider><UnderTheLightsContent /></LanguageProvider>;
+}
+
+function UnderTheLightsContent() {
+  const { language, setLanguage, t } = useI18n();
   const { data: session, isPending: sessionPending } = authClient.useSession();
   const [view, setView] = useState<View>("spotlight");
   const [mobileOpen, setMobileOpen] = useState(false);
@@ -185,6 +227,8 @@ export function UnderTheLightsApp() {
   const [spotlight, setSpotlight] = useState<Spotlight>(fallbackSpotlight);
   const [adminUserId, setAdminUserId] = useState("");
   const [predictionScore, setPredictionScore] = useState<PredictionScore | null>(null);
+  const [predictionTrends, setPredictionTrends] = useState<PredictionTrends | null>(null);
+  const [trendsLoading, setTrendsLoading] = useState(true);
   const [season, setSeason] = useState<SeasonPayload>(emptySeason);
   const [seasonLoading, setSeasonLoading] = useState(true);
   const pendingSyncRef = useRef("");
@@ -237,9 +281,21 @@ export function UnderTheLightsApp() {
       .finally(() => setSeasonLoading(false));
   }, []);
 
+  const refreshPredictionTrends = useCallback(() => {
+    if (!spotlight.fixtureId) return Promise.resolve();
+    return fetch(`/api/predictions/trends?matchId=${spotlight.fixtureId}`, { cache: "no-store" })
+      .then(async (response) => {
+        if (!response.ok) throw new Error("Community picks unavailable");
+        return response.json() as Promise<{ trends: PredictionTrends }>;
+      })
+      .then((payload) => setPredictionTrends(payload.trends))
+      .catch(() => setPredictionTrends(null))
+      .finally(() => setTrendsLoading(false));
+  }, [spotlight.fixtureId]);
+
   const savePrediction = useCallback(async (draft: Prediction, afterAuthentication = false) => {
     setSaving(true);
-    setNotice(afterAuthentication ? "Signed in. Locking your prediction..." : "");
+    setNotice(afterAuthentication ? t("Signed in. Locking your prediction...") : "");
     try {
       const response = await fetch("/api/predictions", {
         method: "POST",
@@ -247,22 +303,23 @@ export function UnderTheLightsApp() {
         body: JSON.stringify({ matchId: String(spotlight.fixtureId), ...draft }),
       });
       const payload = await response.json() as { error?: string };
-      if (!response.ok) throw new Error(payload.error || "Prediction could not be saved");
+      if (!response.ok) throw new Error(payload.error || t("Prediction could not be saved"));
       window.localStorage.removeItem(pendingPredictionKey(spotlight.fixtureId));
       window.localStorage.removeItem(`utl-prediction:${spotlight.fixtureId}`);
       setPrediction(draft);
       setSubmitted(true);
-      setNotice("Prediction locked. You can edit it until kick-off.");
+      setNotice(t("Prediction locked. You can edit it until kick-off."));
       void refreshSeason();
+      void refreshPredictionTrends();
       return true;
     } catch (error) {
-      const message = error instanceof Error ? error.message : "Prediction could not be saved";
-      setNotice(afterAuthentication ? `${message}. Your prediction is still here; click Lock prediction to retry.` : message);
+      const message = error instanceof Error ? error.message : t("Prediction could not be saved");
+      setNotice(afterAuthentication ? t("{message}. Your prediction is still here; click Lock prediction to retry.", { message }) : message);
       return false;
     } finally {
       setSaving(false);
     }
-  }, [refreshSeason, spotlight.fixtureId]);
+  }, [refreshPredictionTrends, refreshSeason, spotlight.fixtureId, t]);
 
   useEffect(() => {
     if (sessionPending) return;
@@ -270,11 +327,20 @@ export function UnderTheLightsApp() {
   }, [refreshSeason, session?.user.id, sessionPending]);
 
   useEffect(() => {
-    fetch("/api/spotlight/current")
+    void refreshPredictionTrends();
+  }, [refreshPredictionTrends]);
+
+  useEffect(() => {
+    fetch("/api/spotlight/current", { cache: "no-store" })
       .then(async (response) => await response.json() as { spotlight?: Spotlight | null })
       .then((payload) => {
-        if (!payload.spotlight) return;
+        if (!payload.spotlight) {
+          setTrendsLoading(false);
+          return;
+        }
         const next = payload.spotlight;
+        setPredictionTrends(null);
+        setTrendsLoading(true);
         setSpotlight(next);
         setPrediction({
           homeScore: 2,
@@ -284,8 +350,37 @@ export function UnderTheLightsApp() {
           firstTeam: String(next.homeClubId),
         });
       })
-      .catch(() => undefined);
+      .catch(() => setTrendsLoading(false));
   }, []);
+
+  useEffect(() => {
+    if (!spotlight.fixtureId || spotlight.result) return;
+    let interval: number | null = null;
+    let active = true;
+    const refreshResult = () => {
+      void fetch("/api/spotlight/current", { cache: "no-store" })
+        .then(async (response) => await response.json() as { spotlight?: Spotlight | null })
+        .then((payload) => {
+          if (active && payload.spotlight?.fixtureId === spotlight.fixtureId) setSpotlight(payload.spotlight);
+        })
+        .catch(() => undefined);
+    };
+    const beginPolling = () => {
+      refreshResult();
+      interval = window.setInterval(refreshResult, 15_000);
+    };
+    const delay = Math.max(0, spotlight.kickoff * 1000 - Date.now());
+    const timeout = window.setTimeout(beginPolling, delay);
+    return () => {
+      active = false;
+      window.clearTimeout(timeout);
+      if (interval !== null) window.clearInterval(interval);
+    };
+  }, [spotlight.fixtureId, spotlight.kickoff, spotlight.result]);
+
+  useEffect(() => {
+    if (spotlight.result?.settledAt) void refreshSeason();
+  }, [refreshSeason, spotlight.result?.settledAt]);
 
   useEffect(() => {
     if (sessionPending || !spotlight.fixtureId) return;
@@ -322,7 +417,7 @@ export function UnderTheLightsApp() {
       })
       .catch(() => undefined);
     return () => controller.abort();
-  }, [savePrediction, session, sessionPending, spotlight.fixtureId]);
+  }, [savePrediction, session, sessionPending, spotlight.fixtureId, spotlight.result?.settledAt]);
 
   const navigate = (next: View) => {
     setView(next);
@@ -336,10 +431,10 @@ export function UnderTheLightsApp() {
       try {
         window.localStorage.setItem(pendingPredictionKey(spotlight.fixtureId), JSON.stringify(prediction));
       } catch {
-        setNotice("Your browser could not keep this prediction during sign-in. Please try again after signing in.");
+        setNotice(t("Your browser could not keep this prediction during sign-in. Please try again after signing in."));
         return;
       }
-      setNotice("Sign in to lock your prediction for the season.");
+      setNotice(t("Sign in to lock your prediction for the season."));
       openAuth();
       return;
     }
@@ -352,16 +447,25 @@ export function UnderTheLightsApp() {
         <button className="brand-button" onClick={() => navigate("spotlight")} aria-label="Under the Lights home">
           <Image src="/logo.png" alt="Soccerverse Under the Lights" className="brand-logo" width={1774} height={887} priority />
         </button>
-        <nav className={mobileOpen ? "main-nav is-open" : "main-nav"} aria-label="Main navigation">
-          <NavButton active={view === "spotlight"} onClick={() => navigate("spotlight")}>Spotlight</NavButton>
-          <NavButton active={view === "how-it-works"} onClick={() => navigate("how-it-works")}>How it works</NavButton>
-          <NavButton active={view === "leaderboard"} onClick={() => navigate("leaderboard")}>Leaderboard</NavButton>
-          <NavButton active={view === "achievements"} onClick={() => navigate("achievements")}>Achievements</NavButton>
-          <NavButton active={view === "project"} onClick={() => navigate("project")}>The project</NavButton>
-          <NavButton active={view === "profile"} onClick={() => navigate("profile")}>My profile</NavButton>
+        <nav className={mobileOpen ? "main-nav is-open" : "main-nav"} aria-label={t("Main navigation")}>
+          <NavButton active={view === "spotlight"} onClick={() => navigate("spotlight")}>{t("Spotlight")}</NavButton>
+          <NavButton active={view === "how-it-works"} onClick={() => navigate("how-it-works")}>{t("How it works")}</NavButton>
+          <NavButton active={view === "leaderboard"} onClick={() => navigate("leaderboard")}>{t("Leaderboard")}</NavButton>
+          <NavButton active={view === "achievements"} onClick={() => navigate("achievements")}>{t("Achievements")}</NavButton>
+          <NavButton active={view === "project"} onClick={() => navigate("project")}>{t("The project")}</NavButton>
+          <NavButton active={view === "profile"} onClick={() => navigate("profile")}>{t("My profile")}</NavButton>
           {isAdmin && <a className="nav-button admin-link" href="/admin"><Lock size={15} weight="bold" /> Admin</a>}
         </nav>
         <div className="header-actions">
+          <label className="language-select">
+            <GlobeHemisphereWest size={17} weight="bold" aria-hidden="true" />
+            <span className="sr-only">{t("Select language")}</span>
+            <span className="language-code">{languages.find((option) => option.code === language)?.short}</span>
+            <select value={language} onChange={(event) => setLanguage(event.target.value as Language)} aria-label={t("Select language")}>
+              {languages.map((option) => <option key={option.code} value={option.code}>{option.label}</option>)}
+            </select>
+            <CaretDown size={13} weight="bold" aria-hidden="true" />
+          </label>
           {session ? (
             <button className="profile-chip" onClick={() => navigate("profile")}>
               <span className="avatar">{initials(session.user.name)}</span>
@@ -369,10 +473,10 @@ export function UnderTheLightsApp() {
             </button>
           ) : (
             <button className="sign-in-button" onClick={openAuth} disabled={sessionPending}>
-              <SignInIcon size={17} weight="bold" /> Sign in
+              <SignInIcon size={17} weight="bold" /> {t("Sign in")}
             </button>
           )}
-          <button className="mobile-menu" onClick={() => setMobileOpen((open) => !open)} aria-label="Toggle navigation" aria-expanded={mobileOpen}>
+          <button className="mobile-menu" onClick={() => setMobileOpen((open) => !open)} aria-label={t("Toggle navigation")} aria-expanded={mobileOpen}>
             <CaretDown size={20} weight="bold" />
           </button>
         </div>
@@ -382,17 +486,20 @@ export function UnderTheLightsApp() {
         {view === "spotlight" && (
           <SpotlightView
             spotlight={spotlight}
-            datapackMode={season.viewer?.datapackMode || "default"}
             prediction={prediction}
             setPrediction={setPrediction}
             submitted={submitted}
             saving={saving}
             notice={notice}
             score={predictionScore}
+            trends={predictionTrends}
+            trendsLoading={trendsLoading}
             leaders={season.leaderboard}
+            viewer={season.viewer}
             projectedPoints={MAX_PREDICTION_POINTS}
             onSubmit={submitPrediction}
             onLeaderboard={() => navigate("leaderboard")}
+            onAchievements={() => navigate("achievements")}
           />
         )}
         {view === "how-it-works" && <HowItWorksView spotlight={spotlight} onPlay={() => navigate("spotlight")} />}
@@ -406,8 +513,8 @@ export function UnderTheLightsApp() {
 
       <footer className="site-footer">
         <Image src="/logo.png" alt="Soccerverse Under the Lights" width={1774} height={887} />
-        <p>One world. One match. Every week.</p>
-        <span>A Soccerverse community game</span>
+        <p>{t("One world. One match. Every week.")}</p>
+        <span>{t("A Soccerverse community game")}</span>
       </footer>
     </div>
   );
@@ -426,11 +533,11 @@ function CompetitorAvatar({ name, avatarUrl, className = "" }: { name: string; a
   );
 }
 
-async function prepareAvatar(file: File) {
+async function prepareAvatar(file: File, t: ReturnType<typeof useI18n>["t"]) {
   if (!["image/jpeg", "image/png", "image/webp"].includes(file.type)) {
-    throw new Error("Choose a JPEG, PNG or WebP image");
+    throw new Error(t("Choose a JPEG, PNG or WebP image"));
   }
-  if (file.size > 10_000_000) throw new Error("Choose an image smaller than 10 MB");
+  if (file.size > 10_000_000) throw new Error(t("Choose an image smaller than 10 MB"));
 
   const objectUrl = URL.createObjectURL(file);
   try {
@@ -438,17 +545,17 @@ async function prepareAvatar(file: File) {
     image.decoding = "async";
     await new Promise<void>((resolve, reject) => {
       image.onload = () => resolve();
-      image.onerror = () => reject(new Error("This image could not be opened"));
+      image.onerror = () => reject(new Error(t("This image could not be opened")));
       image.src = objectUrl;
     });
     const side = Math.min(image.naturalWidth, image.naturalHeight);
-    if (!side) throw new Error("This image has invalid dimensions");
+    if (!side) throw new Error(t("This image has invalid dimensions"));
 
     const canvas = document.createElement("canvas");
     canvas.width = 384;
     canvas.height = 384;
     const context = canvas.getContext("2d");
-    if (!context) throw new Error("This browser cannot prepare the image");
+    if (!context) throw new Error(t("This browser cannot prepare the image"));
     context.drawImage(
       image,
       Math.floor((image.naturalWidth - side) / 2),
@@ -462,7 +569,7 @@ async function prepareAvatar(file: File) {
     );
     const avatarDataUrl = canvas.toDataURL("image/webp", .82);
     if (avatarDataUrl.length > MAX_AVATAR_DATA_URL_LENGTH) {
-      throw new Error("The compressed profile photo is still too large");
+      throw new Error(t("The compressed profile photo is still too large"));
     }
     return avatarDataUrl;
   } finally {
@@ -471,13 +578,14 @@ async function prepareAvatar(file: File) {
 }
 
 function SoccerverseAccountLink({ username, compact = false }: { username: string; compact?: boolean }) {
+  const { t } = useI18n();
   return (
     <a
       className={compact ? "soccerverse-account-link compact" : "soccerverse-account-link"}
       href={soccerverseProfileUrl(username)}
       target="_blank"
       rel="noreferrer"
-      aria-label={`Open ${username} on Soccerverse`}
+      aria-label={t("Open {username} on Soccerverse", { username })}
     >
       @{username}<ArrowSquareOut size={compact ? 12 : 15} weight="bold" />
     </a>
@@ -487,6 +595,7 @@ function SoccerverseAccountLink({ username, compact = false }: { username: strin
 type AuthMode = "sign-in" | "sign-up" | "forgot-password" | "reset-password" | "check-email" | "verified" | "verification-error" | "reset-error" | "reset-success";
 
 function AuthDialog({ intent, token, onClose }: { intent: AuthIntent; token: string; onClose: () => void }) {
+  const { t } = useI18n();
   const [mode, setMode] = useState<AuthMode>(intent);
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
@@ -529,7 +638,7 @@ function AuthDialog({ intent, token, onClose }: { intent: AuthIntent; token: str
         setMode("check-email");
         return;
       }
-      setError(result.error.message || "Authentication failed");
+      setError(result.error.message || t("Authentication failed"));
       return;
     }
     if (mode === "sign-up" && providers.emailVerification) {
@@ -550,7 +659,7 @@ function AuthDialog({ intent, token, onClose }: { intent: AuthIntent; token: str
     });
     setPending(false);
     if (result.error) {
-      setError(result.error.message || "The reset email could not be sent");
+      setError(result.error.message || t("The reset email could not be sent"));
       return;
     }
     setEmailPurpose("reset");
@@ -561,14 +670,14 @@ function AuthDialog({ intent, token, onClose }: { intent: AuthIntent; token: str
     event.preventDefault();
     setError("");
     if (password !== passwordConfirmation) {
-      setError("Passwords do not match.");
+      setError(t("Passwords do not match."));
       return;
     }
     setPending(true);
     const result = await authClient.resetPassword({ newPassword: password, token });
     setPending(false);
     if (result.error) {
-      setError(result.error.message || "This reset link is invalid or expired");
+      setError(result.error.message || t("This reset link is invalid or expired"));
       return;
     }
     setMode("reset-success");
@@ -584,7 +693,7 @@ function AuthDialog({ intent, token, onClose }: { intent: AuthIntent; token: str
       callbackURL: `${window.location.origin}/?auth=verified`,
     });
     setPending(false);
-    if (result.error) setError(result.error.message || "The verification email could not be sent");
+    if (result.error) setError(result.error.message || t("The verification email could not be sent"));
   }
 
   async function signInWithDiscord() {
@@ -593,7 +702,7 @@ function AuthDialog({ intent, token, onClose }: { intent: AuthIntent; token: str
     const result = await authClient.signIn.social({ provider: "discord", callbackURL: window.location.origin });
     if (result.error) {
       setPending(false);
-      setError("Discord sign-in is waiting for the app credentials.");
+      setError(t("Discord sign-in is waiting for the app credentials."));
     }
   }
 
@@ -602,10 +711,10 @@ function AuthDialog({ intent, token, onClose }: { intent: AuthIntent; token: str
     return (
       <AuthShell onClose={onClose}>
         <div className="auth-state-icon"><ShieldCheck size={38} weight="fill" /></div>
-        <span className="auth-kicker">{verified ? "Email verified" : "Password updated"}</span>
-        <h2 id="auth-title">{verified ? "You’re in." : "Back in the game."}</h2>
-        <p>{verified ? "Your email is confirmed and your Under the Lights account is ready." : "Your new password is active. All other sessions have been signed out for safety."}</p>
-        <button className="auth-submit" onClick={verified ? onClose : () => setMode("sign-in")}>{verified ? "Continue to the spotlight" : "Sign in with the new password"}</button>
+        <span className="auth-kicker">{verified ? t("Email verified") : t("Password updated")}</span>
+        <h2 id="auth-title">{verified ? t("You’re in.") : t("Back in the game.")}</h2>
+        <p>{verified ? t("Your email is confirmed and your Under the Lights account is ready.") : t("Your new password is active. All other sessions have been signed out for safety.")}</p>
+        <button className="auth-submit" onClick={verified ? onClose : () => setMode("sign-in")}>{verified ? t("Continue to the spotlight") : t("Sign in with the new password")}</button>
       </AuthShell>
     );
   }
@@ -615,10 +724,10 @@ function AuthDialog({ intent, token, onClose }: { intent: AuthIntent; token: str
     return (
       <AuthShell onClose={onClose}>
         <div className="auth-state-icon error"><X size={34} weight="bold" /></div>
-        <span className="auth-kicker">Link expired</span>
-        <h2 id="auth-title">Let’s try again.</h2>
-        <p>{verification ? "This verification link is invalid or has expired." : "This password-reset link is invalid or has expired."}</p>
-        <button className="auth-submit" onClick={() => setMode(verification ? "sign-in" : "forgot-password")}>{verification ? "Return to sign in" : "Request a new link"}</button>
+        <span className="auth-kicker">{t("Link expired")}</span>
+        <h2 id="auth-title">{t("Let’s try again.")}</h2>
+        <p>{verification ? t("This verification link is invalid or has expired.") : t("This password-reset link is invalid or has expired.")}</p>
+        <button className="auth-submit" onClick={() => setMode(verification ? "sign-in" : "forgot-password")}>{verification ? t("Return to sign in") : t("Request a new link")}</button>
       </AuthShell>
     );
   }
@@ -627,12 +736,12 @@ function AuthDialog({ intent, token, onClose }: { intent: AuthIntent; token: str
     return (
       <AuthShell onClose={onClose}>
         <div className="auth-state-icon"><EnvelopeSimple size={38} weight="duotone" /></div>
-        <span className="auth-kicker">Check your inbox</span>
-        <h2 id="auth-title">Link sent.</h2>
-        <p>If an account exists for <strong>{email}</strong>, the secure link is on its way. It expires in 60 minutes.</p>
+        <span className="auth-kicker">{t("Check your inbox")}</span>
+        <h2 id="auth-title">{t("Link sent.")}</h2>
+        <p>{t("If an account exists for {email}, the secure link is on its way. It expires in 60 minutes.", { email })}</p>
         {error && <p className="auth-error" role="alert">{error}</p>}
-        {emailPurpose === "verification" && providers.emailVerification && <button className="auth-submit" onClick={resendVerification} disabled={pending || !email}>{pending ? "Sending..." : "Resend verification email"}</button>}
-        <button className="auth-switch" onClick={() => setMode("sign-in")}>Return to sign in</button>
+        {emailPurpose === "verification" && providers.emailVerification && <button className="auth-submit" onClick={resendVerification} disabled={pending || !email}>{pending ? t("Sending...") : t("Resend verification email")}</button>}
+        <button className="auth-switch" onClick={() => setMode("sign-in")}>{t("Return to sign in")}</button>
       </AuthShell>
     );
   }
@@ -641,15 +750,15 @@ function AuthDialog({ intent, token, onClose }: { intent: AuthIntent; token: str
     return (
       <AuthShell onClose={onClose}>
         <div className="auth-state-icon"><Password size={38} weight="duotone" /></div>
-        <span className="auth-kicker">Account recovery</span>
-        <h2 id="auth-title">Reset your password.</h2>
-        <p>Enter your email and we’ll send a secure, one-hour reset link.</p>
+        <span className="auth-kicker">{t("Account recovery")}</span>
+        <h2 id="auth-title">{t("Reset your password.")}</h2>
+        <p>{t("Enter your email and we’ll send a secure, one-hour reset link.")}</p>
         <form onSubmit={requestPasswordReset}>
-          <label><span>Email</span><input type="email" value={email} onChange={(event) => setEmail(event.target.value)} required autoComplete="email" autoFocus /></label>
+          <label><span>{t("Email")}</span><input type="email" value={email} onChange={(event) => setEmail(event.target.value)} required autoComplete="email" autoFocus /></label>
           {error && <p className="auth-error" role="alert">{error}</p>}
-          <button className="auth-submit" type="submit" disabled={pending}>{pending ? "Sending..." : "Send reset link"}</button>
+          <button className="auth-submit" type="submit" disabled={pending}>{pending ? t("Sending...") : t("Send reset link")}</button>
         </form>
-        <button className="auth-switch" onClick={() => setMode("sign-in")}>Return to sign in</button>
+        <button className="auth-switch" onClick={() => setMode("sign-in")}>{t("Return to sign in")}</button>
       </AuthShell>
     );
   }
@@ -658,14 +767,14 @@ function AuthDialog({ intent, token, onClose }: { intent: AuthIntent; token: str
     return (
       <AuthShell onClose={onClose}>
         <div className="auth-state-icon"><Password size={38} weight="duotone" /></div>
-        <span className="auth-kicker">Secure reset</span>
-        <h2 id="auth-title">Choose a new password.</h2>
-        <p>Use at least eight characters. Your other sessions will be closed after the reset.</p>
+        <span className="auth-kicker">{t("Secure reset")}</span>
+        <h2 id="auth-title">{t("Choose a new password.")}</h2>
+        <p>{t("Use at least eight characters. Your other sessions will be closed after the reset.")}</p>
         <form onSubmit={resetPassword}>
-          <label><span>New password</span><input type="password" value={password} onChange={(event) => setPassword(event.target.value)} required minLength={8} maxLength={128} autoComplete="new-password" autoFocus /></label>
-          <label><span>Confirm password</span><input type="password" value={passwordConfirmation} onChange={(event) => setPasswordConfirmation(event.target.value)} required minLength={8} maxLength={128} autoComplete="new-password" /></label>
+          <label><span>{t("New password")}</span><input type="password" value={password} onChange={(event) => setPassword(event.target.value)} required minLength={8} maxLength={128} autoComplete="new-password" autoFocus /></label>
+          <label><span>{t("Confirm password")}</span><input type="password" value={passwordConfirmation} onChange={(event) => setPasswordConfirmation(event.target.value)} required minLength={8} maxLength={128} autoComplete="new-password" /></label>
           {error && <p className="auth-error" role="alert">{error}</p>}
-          <button className="auth-submit" type="submit" disabled={pending}>{pending ? "Updating..." : "Set new password"}</button>
+          <button className="auth-submit" type="submit" disabled={pending}>{pending ? t("Updating...") : t("Set new password")}</button>
         </form>
       </AuthShell>
     );
@@ -674,24 +783,24 @@ function AuthDialog({ intent, token, onClose }: { intent: AuthIntent; token: str
   return (
     <div className="auth-backdrop" role="presentation" onMouseDown={(event) => event.target === event.currentTarget && onClose()}>
       <section className="auth-dialog" role="dialog" aria-modal="true" aria-labelledby="auth-title">
-        <button className="auth-close" onClick={onClose} aria-label="Close sign in"><X size={20} /></button>
-        <span className="auth-kicker">Enter the competition</span>
-        <h2 id="auth-title">{mode === "sign-in" ? "Welcome back." : "Join the season."}</h2>
-        <p>Your predictions, points and badges stay attached to one identity.</p>
+        <button className="auth-close" onClick={onClose} aria-label={t("Close sign in")}><X size={20} /></button>
+        <span className="auth-kicker">{t("Season leaderboard")}</span>
+        <h2 id="auth-title">{mode === "sign-in" ? t("Welcome back.") : t("Join the season.")}</h2>
+        <p>{t("Your predictions, points and badges stay attached to one identity.")}</p>
         <button className="discord-button" onClick={signInWithDiscord} disabled={pending || !providers.discord}>
-          <DiscordLogo size={21} weight="fill" /> {providers.discord ? "Continue with Discord" : "Discord setup pending"}
+          <DiscordLogo size={21} weight="fill" /> {providers.discord ? t("Continue with Discord") : "Discord"}
         </button>
-        <div className="auth-divider"><span>or use email</span></div>
+        <div className="auth-divider"><span>{t("or use email")}</span></div>
         <form onSubmit={submitEmail}>
-          {mode === "sign-up" && <label><span>Display name</span><input value={name} onChange={(event) => setName(event.target.value)} required maxLength={32} autoComplete="name" /></label>}
-          <label><span>Email</span><input type="email" value={email} onChange={(event) => setEmail(event.target.value)} required autoComplete="email" /></label>
-          <label><span>Password</span><input type="password" value={password} onChange={(event) => setPassword(event.target.value)} required minLength={8} autoComplete={mode === "sign-in" ? "current-password" : "new-password"} /></label>
+          {mode === "sign-up" && <label><span>{t("Display name")}</span><input value={name} onChange={(event) => setName(event.target.value)} required maxLength={32} autoComplete="name" /></label>}
+          <label><span>{t("Email")}</span><input type="email" value={email} onChange={(event) => setEmail(event.target.value)} required autoComplete="email" /></label>
+          <label><span>{t("Password")}</span><input type="password" value={password} onChange={(event) => setPassword(event.target.value)} required minLength={8} autoComplete={mode === "sign-in" ? "current-password" : "new-password"} /></label>
           {error && <p className="auth-error" role="alert">{error}</p>}
-          <button className="auth-submit" type="submit" disabled={pending || !providers.ready}>{pending || !providers.ready ? "Please wait..." : mode === "sign-in" ? "Sign in" : "Create account"}</button>
+          <button className="auth-submit" type="submit" disabled={pending || !providers.ready}>{pending || !providers.ready ? t("Please wait...") : mode === "sign-in" ? t("Sign in") : t("Create account")}</button>
         </form>
-        {mode === "sign-in" && providers.passwordReset && <button className="auth-forgot" onClick={() => { setMode("forgot-password"); setError(""); }}>Forgot your password?</button>}
+        {mode === "sign-in" && providers.passwordReset && <button className="auth-forgot" onClick={() => { setMode("forgot-password"); setError(""); }}>{t("Forgot your password?")}</button>}
         <button className="auth-switch" onClick={() => { setMode(mode === "sign-in" ? "sign-up" : "sign-in"); setError(""); }}>
-          {mode === "sign-in" ? "New under the lights? Create an account" : "Already competing? Sign in"}
+          {mode === "sign-in" ? t("New under the lights? Create an account") : t("Already competing? Sign in")}
         </button>
       </section>
     </div>
@@ -699,10 +808,11 @@ function AuthDialog({ intent, token, onClose }: { intent: AuthIntent; token: str
 }
 
 function AuthShell({ onClose, children }: { onClose: () => void; children: React.ReactNode }) {
+  const { t } = useI18n();
   return (
     <div className="auth-backdrop" role="presentation" onMouseDown={(event) => event.target === event.currentTarget && onClose()}>
       <section className="auth-dialog auth-state" role="dialog" aria-modal="true" aria-labelledby="auth-title">
-        <button className="auth-close" onClick={onClose} aria-label="Close authentication"><X size={20} /></button>
+        <button className="auth-close" onClick={onClose} aria-label={t("Close authentication")}><X size={20} /></button>
         {children}
       </section>
     </div>
@@ -713,30 +823,34 @@ function NavButton({ active, onClick, children }: { active: boolean; onClick: ()
   return <button className={active ? "nav-button active" : "nav-button"} onClick={onClick}>{children}</button>;
 }
 
-function SpotlightView({ spotlight, datapackMode, prediction, setPrediction, submitted, saving, notice, score, leaders, projectedPoints, onSubmit, onLeaderboard }: {
+function SpotlightView({ spotlight, prediction, setPrediction, submitted, saving, notice, score, trends, trendsLoading, leaders, viewer, projectedPoints, onSubmit, onLeaderboard, onAchievements }: {
   spotlight: Spotlight;
-  datapackMode: DatapackMode;
   prediction: Prediction;
   setPrediction: (prediction: Prediction) => void;
   submitted: boolean;
   saving: boolean;
   notice: string;
   score: PredictionScore | null;
+  trends: PredictionTrends | null;
+  trendsLoading: boolean;
   leaders: SeasonPayload["leaderboard"];
+  viewer: SeasonViewer | null;
   projectedPoints: number;
   onSubmit: (event: FormEvent) => void;
   onLeaderboard: () => void;
+  onAchievements: () => void;
 }) {
+  const { t, locale } = useI18n();
   const heroRef = useRef<HTMLElement>(null);
   const [clock, setClock] = useState(0);
-  const kickoff = new Intl.DateTimeFormat("en-GB", { weekday: "long", hour: "2-digit", minute: "2-digit", timeZone: "Europe/Paris", timeZoneName: "short" }).format(new Date(spotlight.kickoff * 1000));
+  const kickoff = new Intl.DateTimeFormat(locale, { weekday: "long", hour: "2-digit", minute: "2-digit", timeZone: "Europe/Paris", timeZoneName: "short" }).format(new Date(spotlight.kickoff * 1000));
   const selectedScorer = spotlight.players.find((player) => String(player.id) === prediction.firstScorer)?.name
-    || (prediction.firstScorer === NO_GOAL ? "No first goalscorer" : "Select a player");
+    || (prediction.firstScorer === NO_GOAL ? t("No goal") : t("Choose a player"));
   const predictionsClosed = Boolean(spotlight.result) || clock >= spotlight.kickoff * 1000;
   const awaitingResult = predictionsClosed && !spotlight.result;
-  const spotlightReason = spotlight.reasons[0] || "The match of the week";
+  const spotlightReason = spotlight.reasons[0] || t("The match of the week");
   const resultScorer = spotlight.players.find((player) => String(player.id) === spotlight.result?.firstScorer)?.name
-    || (spotlight.result?.firstScorer === NO_GOAL ? "No goalscorer" : "Pending confirmation");
+    || (spotlight.result?.firstScorer === NO_GOAL ? t("No goal") : t("Pending confirmation"));
 
   useEffect(() => {
     const initialTick = window.setTimeout(() => setClock(Date.now()), 0);
@@ -747,18 +861,35 @@ function SpotlightView({ spotlight, datapackMode, prediction, setPrediction, sub
     };
   }, []);
 
-  function updateScore(field: "homeScore" | "awayScore", value: number) {
-    const next = { ...prediction, [field]: value };
-    if (next.homeScore + next.awayScore === 0) {
-      next.firstScorer = NO_GOAL;
-      next.goalWindow = NO_GOAL;
-      next.firstTeam = NO_GOAL;
-    } else {
-      if (next.firstScorer === NO_GOAL) next.firstScorer = "";
-      if (next.goalWindow === NO_GOAL) next.goalWindow = "1-15";
-      if (next.firstTeam === NO_GOAL) next.firstTeam = String(spotlight.homeClubId);
+  useEffect(() => {
+    const next = coherentPrediction(prediction, spotlight);
+    if (next.firstScorer !== prediction.firstScorer
+      || next.goalWindow !== prediction.goalWindow
+      || next.firstTeam !== prediction.firstTeam) {
+      setPrediction(next);
     }
-    setPrediction(next);
+  }, [prediction, setPrediction, spotlight]);
+
+  function updateScore(field: "homeScore" | "awayScore", value: number) {
+    setPrediction(coherentPrediction({ ...prediction, [field]: value }, spotlight));
+  }
+
+  function updateFirstScorer(firstScorer: string) {
+    const player = spotlight.players.find((candidate) => String(candidate.id) === firstScorer);
+    setPrediction({
+      ...prediction,
+      firstScorer,
+      firstTeam: player ? String(player.clubId) : prediction.firstTeam,
+    });
+  }
+
+  function updateFirstTeam(firstTeam: string) {
+    const selected = spotlight.players.find((player) => String(player.id) === prediction.firstScorer);
+    setPrediction({
+      ...prediction,
+      firstTeam,
+      firstScorer: selected && String(selected.clubId) !== firstTeam ? "" : prediction.firstScorer,
+    });
   }
 
   function moveHeroLight(event: React.PointerEvent<HTMLElement>) {
@@ -775,53 +906,49 @@ function SpotlightView({ spotlight, datapackMode, prediction, setPrediction, sub
         <div className="hero-scrim" />
         <div className="hero-pointer-light" aria-hidden="true" />
         <div className="hero-copy">
-          <div className="eyebrow"><GlobeHemisphereWest size={16} weight="bold" /> This week in {spotlight.countryCode}</div>
-          <h1>One match.<br /><em>All eyes.</em></h1>
-          <p>Discover the games that matter, wherever football takes you.</p>
-          <a href="#prediction" className="primary-cta">Make your prediction <ArrowRight size={18} weight="bold" /></a>
+          <div className="eyebrow"><GlobeHemisphereWest size={16} weight="bold" /> {t("This week in {country}", { country: spotlight.countryCode })}</div>
+          <h1>{t("One match.")}<br /><em>{t("All eyes.")}</em></h1>
+          <p>{t("Discover the games that matter, wherever football takes you.")}</p>
+          <a href="#prediction" className="primary-cta">{spotlight.result ? t("View match review") : t("Make your prediction")} <ArrowRight size={18} weight="bold" /></a>
         </div>
 
-        <article className="fixture-panel" aria-label="Featured match">
+        <article className="fixture-panel" aria-label={t("Featured match")}>
           <div className="fixture-heading">
-            <div><span>Featured fixture</span><strong>{spotlight.competitionName}</strong></div>
+            <div><span>{t("Featured fixture")}</span><strong>{spotlight.competitionName}</strong></div>
             <time>{kickoff}</time>
           </div>
           <div className="teams">
-            <TeamMark
-              initials={initials(spotlight.homeName)}
-              name={spotlight.homeName}
-              position={spotlight.homePosition}
-              competition={spotlight.competitionName}
-              logoUrl={datapackMode === "community" ? spotlight.homeCommunityLogoUrl : null}
-              home
-            />
+            <TeamMark initials={initials(spotlight.homeName)} name={spotlight.homeName} logoUrl={viewer?.datapackMode === "default" ? null : spotlight.homeLogoUrl} color={viewer?.datapackMode === "default" ? null : spotlight.homeColor} position={spotlight.homePosition} competition={spotlight.competitionName} home />
             <div className="versus"><span>VS</span><small>{spotlightReason}</small></div>
-            <TeamMark
-              initials={initials(spotlight.awayName)}
-              name={spotlight.awayName}
-              position={spotlight.awayPosition}
-              competition={spotlight.competitionName}
-              logoUrl={datapackMode === "community" ? spotlight.awayCommunityLogoUrl : null}
-            />
+            <TeamMark initials={initials(spotlight.awayName)} name={spotlight.awayName} logoUrl={viewer?.datapackMode === "default" ? null : spotlight.awayLogoUrl} color={viewer?.datapackMode === "default" ? null : spotlight.awayColor} position={spotlight.awayPosition} competition={spotlight.competitionName} />
           </div>
           <div className="fixture-story"><strong>{spotlight.title}</strong><p>{spotlight.summary}</p></div>
           <SoccerverseLinks spotlight={spotlight} />
         </article>
       </section>
 
-      <section className="match-dossier" aria-label="Match context">
-        <div className="dossier-intro"><span>Why this match</span><strong>{spotlight.reasons.slice(0, 2).join(". ") || "One fixture deserves the world stage."}</strong></div>
-        <div><strong>{positionMatchup(spotlight)}</strong><span>League positions</span></div>
-        <div><strong>{strengthMatchup(spotlight)}</strong><span>Squad strength</span></div>
-        <div><strong>{spotlight.homeRecord || "Fresh start"}</strong><span>{spotlight.homeName} record</span></div>
+      <section className="match-dossier" aria-label={t("Match context")}>
+        <div className="dossier-intro"><span>{t("Why this match")}</span><strong>{spotlight.reasons.slice(0, 2).join(". ") || t("The match of the week")}</strong></div>
+        <div><strong>{t(positionMatchup(spotlight))}</strong><span>{t("League positions")}</span></div>
+        <div><strong>{t(strengthMatchup(spotlight))}</strong><span>{t("Squad strength")}</span></div>
+        <div><strong>{spotlight.homeRecord || "-"}</strong><span>{t("{team} record", { team: spotlight.homeName })}</span></div>
       </section>
 
-      <section className="prediction-section" id="prediction">
-        <div className="section-heading"><span>Your call</span><h2>Read the game.<br />Own the moment.</h2><p>Every correct detail adds points. Precision unlocks the rarest achievements.</p></div>
+      {spotlight.result && score ? (
+        <PostMatchRecap
+          spotlight={spotlight}
+          prediction={prediction}
+          score={score}
+          viewer={viewer}
+          onLeaderboard={onLeaderboard}
+          onAchievements={onAchievements}
+        />
+      ) : <section className="prediction-section" id="prediction">
+        <div className="section-heading"><span>{t("Your call")}</span><h2>{t("Read the game.")}<br />{t("Own the moment.")}</h2><p>{t("Every correct detail adds points. Precision unlocks the rarest achievements.")}</p></div>
         <form className="prediction-grid" onSubmit={onSubmit}>
           <div className="prediction-main">
             <fieldset className="score-fieldset">
-              <legend>Full-time score</legend>
+              <legend>{t("Full-time score")}</legend>
               <div className="score-picker">
                 <ScoreControl label={spotlight.homeName} value={prediction.homeScore} disabled={predictionsClosed} onChange={(homeScore) => updateScore("homeScore", homeScore)} />
                 <span className="score-separator">:</span>
@@ -832,80 +959,261 @@ function SpotlightView({ spotlight, datapackMode, prediction, setPrediction, sub
               players={spotlight.players}
               homeClubId={spotlight.homeClubId}
               awayClubId={spotlight.awayClubId}
+              allowedClubIds={allowedFirstTeams(prediction.homeScore, prediction.awayScore, String(spotlight.homeClubId), String(spotlight.awayClubId)).filter((clubId) => clubId !== NO_GOAL).map(Number)}
               homeName={spotlight.homeName}
               awayName={spotlight.awayName}
               value={prediction.firstScorer}
               disabled={predictionsClosed || !spotlight.players.length || prediction.homeScore + prediction.awayScore === 0}
               loading={!spotlight.players.length}
-              onChange={(firstScorer) => setPrediction({ ...prediction, firstScorer })}
+              onChange={updateFirstScorer}
             />
-            <fieldset className="field-block"><legend>First goal window</legend><div className="choice-row">{GOAL_WINDOWS.map((window) => <button type="button" key={window} disabled={predictionsClosed} className={prediction.goalWindow === window ? "choice active" : "choice"} onClick={() => setPrediction({ ...prediction, goalWindow: window })}>{window === NO_GOAL ? "No goal" : window}</button>)}</div></fieldset>
-            <fieldset className="field-block"><legend>Who scores first?</legend><div className="choice-row three">{spotlight.fixtureId > 0 && [
+            <fieldset className="field-block"><legend>{t("First goal window")}</legend><div className="choice-row">{GOAL_WINDOWS.map((window) => <button type="button" key={window} disabled={predictionsClosed || (prediction.homeScore + prediction.awayScore === 0 ? window !== NO_GOAL : window === NO_GOAL)} className={prediction.goalWindow === window ? "choice active" : "choice"} onClick={() => setPrediction({ ...prediction, goalWindow: window })}>{window === NO_GOAL ? t("No goal") : window}</button>)}</div></fieldset>
+            <fieldset className="field-block"><legend>{t("Who scores first?")}</legend><div className="choice-row three">{spotlight.fixtureId > 0 && [
               { key: "home", value: String(spotlight.homeClubId), label: spotlight.homeName },
               { key: "away", value: String(spotlight.awayClubId), label: spotlight.awayName },
-              { key: "no-goal", value: NO_GOAL, label: "No goal" },
-            ].map((team) => <button type="button" key={team.key} disabled={predictionsClosed} className={prediction.firstTeam === team.value ? "choice active" : "choice"} onClick={() => setPrediction({ ...prediction, firstTeam: team.value })}>{team.label}</button>)}</div></fieldset>
+              { key: "no-goal", value: NO_GOAL, label: t("No goal") },
+            ].map((team) => <button type="button" key={team.key} disabled={predictionsClosed || !allowedFirstTeams(prediction.homeScore, prediction.awayScore, String(spotlight.homeClubId), String(spotlight.awayClubId)).includes(team.value)} className={prediction.firstTeam === team.value ? "choice active" : "choice"} onClick={() => updateFirstTeam(team.value)}>{team.label}</button>)}</div></fieldset>
           </div>
 
           <aside className="prediction-summary">
-            <div className="summary-top"><Clock size={20} /><span>{spotlight.result ? "Final result" : awaitingResult ? "Result processing" : "Predictions close"}</span><strong>{spotlight.result ? "Settled" : kickoff}</strong></div>
+            <div className="summary-top"><Clock size={20} /><span>{spotlight.result ? t("Final result") : awaitingResult ? t("Result processing") : t("Predictions close")}</span><strong>{spotlight.result ? t("Settled") : kickoff}</strong></div>
             <div className={spotlight.result ? "score-preview final" : "score-preview"}><span>{initials(spotlight.homeName)}</span><strong>{spotlight.result ? `${spotlight.result.homeScore} - ${spotlight.result.awayScore}` : `${prediction.homeScore} - ${prediction.awayScore}`}</strong><span>{initials(spotlight.awayName)}</span></div>
-            {score ? <ScoreBreakdown score={score} /> : <div className="scoring-key" aria-label="Scoring rules"><span>Result <b>3</b></span><span>Exact <b>+5</b></span><span>Scorer <b>4</b></span><span>Window <b>2</b></span><span>First team <b>1</b></span></div>}
-            <dl>{spotlight.result ? <><div><dt>First scorer</dt><dd>{resultScorer}</dd></div><div><dt>First goal</dt><dd>{spotlight.result.firstGoalMinute ? `${spotlight.result.firstGoalMinute}' · ${spotlight.result.goalWindow}` : "No goal"}</dd></div><div><dt>Your total</dt><dd>{score ? `${score.totalPoints} pts` : submitted ? "Processing" : "No prediction"}</dd></div></> : <><div><dt>First scorer</dt><dd>{selectedScorer}</dd></div><div><dt>Goal window</dt><dd>{prediction.goalWindow === NO_GOAL ? "No goal" : `${prediction.goalWindow} min`}</dd></div><div><dt>Maximum haul</dt><dd>{projectedPoints} pts</dd></div></>}</dl>
-            {spotlight.result && score ? <div className="points-awarded"><Trophy size={20} weight="fill" /><span>Points awarded</span><strong>+{score.totalPoints}</strong></div> : <button className="submit-prediction" type="submit" disabled={saving || predictionsClosed || !spotlight.players.length || (prediction.homeScore + prediction.awayScore > 0 && (!prediction.firstScorer || prediction.firstScorer === NO_GOAL))}>{saving ? "Locking prediction..." : awaitingResult ? "Awaiting final result" : predictionsClosed ? "Predictions closed" : submitted ? "Update prediction" : "Lock prediction"}{submitted ? <Check size={19} weight="bold" /> : <ArrowRight size={19} weight="bold" />}</button>}
+            {score ? <ScoreBreakdown score={score} /> : <div className="scoring-key" aria-label={t("Scoring rules")}><span>{t("Result")} <b>3</b></span><span>{t("Exact")} <b>+5</b></span><span>{t("Scorer")} <b>4</b></span><span>{t("Window")} <b>2</b></span><span>{t("First team")} <b>1</b></span></div>}
+            <dl>{spotlight.result ? <><div><dt>{t("First scorer")}</dt><dd>{resultScorer}</dd></div><div><dt>{t("Goal window")}</dt><dd>{spotlight.result.firstGoalMinute ? `${spotlight.result.firstGoalMinute}' · ${spotlight.result.goalWindow}` : t("No goal")}</dd></div><div><dt>{t("Your total")}</dt><dd>{score ? `${score.totalPoints} pts` : "-"}</dd></div></> : <><div><dt>{t("First scorer")}</dt><dd>{selectedScorer}</dd></div><div><dt>{t("Goal window")}</dt><dd>{prediction.goalWindow === NO_GOAL ? t("No goal") : `${prediction.goalWindow} min`}</dd></div><div><dt>{t("Maximum haul")}</dt><dd>{projectedPoints} pts</dd></div></>}</dl>
+            {spotlight.result && score ? <div className="points-awarded"><Trophy size={20} weight="fill" /><span>{t("Points awarded")}</span><strong>+{score.totalPoints}</strong></div> : <button className="submit-prediction" type="submit" disabled={saving || predictionsClosed || !spotlight.players.length || (prediction.homeScore + prediction.awayScore > 0 && (!prediction.firstScorer || prediction.firstScorer === NO_GOAL))}>{saving ? t("Locking prediction...") : awaitingResult ? t("Awaiting final result") : predictionsClosed ? t("Predictions closed") : submitted ? t("Update prediction") : t("Lock prediction")}{submitted ? <Check size={19} weight="bold" /> : <ArrowRight size={19} weight="bold" />}</button>}
             {notice && <p className="form-notice" role="status">{notice}</p>}
           </aside>
         </form>
-      </section>
+        <CommunityTrends trends={trends} loading={trendsLoading} homeName={spotlight.homeName} awayName={spotlight.awayName} />
+      </section>}
 
       <section className="week-leaders">
-        <div className="leaders-copy"><span>Season table</span><h2>The season never stops.</h2><p>Weekly precision builds a reputation across every league.</p><button className="text-link" onClick={onLeaderboard}>View full leaderboard <ArrowRight size={18} /></button></div>
-        <div className="leader-podium">{leaders.length ? leaders.slice(0, 3).map((entry) => <div key={entry.participantId} className="mini-rank"><span>{String(entry.rank).padStart(2, "0")}</span><div><CompetitorAvatar name={entry.displayName} avatarUrl={entry.avatarUrl} className="mini-player-avatar" /><a className="public-player-link" href={`/players/${encodeURIComponent(entry.participantId)}`}>{entry.displayName}</a><small>{entry.played} played · {entry.exactScores} exact</small>{entry.soccerverseUsername && <SoccerverseAccountLink username={entry.soccerverseUsername} compact />}</div><b>{entry.points}<small> pts</small></b></div>) : <SeasonEmpty compact title="The table is waiting" description="The first settled spotlight will reveal the opening standings." />}</div>
+        <div className="leaders-copy"><span>{t("Season table")}</span><h2>{t("The season never stops.")}</h2><p>{t("Weekly precision builds a reputation across every league.")}</p><button className="text-link" onClick={onLeaderboard}>{t("View full leaderboard")} <ArrowRight size={18} /></button></div>
+        <div className="leader-podium">{leaders.length ? leaders.slice(0, 3).map((entry) => <div key={entry.participantId} className="mini-rank"><span>{String(entry.rank).padStart(2, "0")}</span><div><CompetitorAvatar name={entry.displayName} avatarUrl={entry.avatarUrl} className="mini-player-avatar" /><a className="public-player-link" href={`/players/${encodeURIComponent(entry.participantId)}`}>{entry.displayName}</a><small>{t("{played} played · {exact} exact", { played: entry.played, exact: entry.exactScores })}</small>{entry.soccerverseUsername && <SoccerverseAccountLink username={entry.soccerverseUsername} compact />}</div><b>{entry.points}<small> pts</small></b></div>) : <SeasonEmpty compact title={t("The table is waiting")} description={t("The first settled spotlight will reveal the opening standings.")} />}</div>
       </section>
     </>
   );
 }
 
-function ScoreBreakdown({ score }: { score: PredictionScore }) {
-  const items = [
-    ["Result", score.outcomePoints],
-    ["Exact", score.exactScorePoints],
-    ["Scorer", score.firstScorerPoints],
-    ["Window", score.goalWindowPoints],
-    ["First team", score.firstTeamPoints],
-  ] as const;
-  return <div className="scoring-key awarded" aria-label="Points breakdown">{items.map(([label, points]) => <span className={points ? "hit" : "miss"} key={label}>{label} <b>+{points}</b></span>)}</div>;
-}
-
-function TeamMark({ initials: mark, name, position, competition, logoUrl, home = false }: {
-  initials: string;
-  name: string;
-  position: number | null;
-  competition: string;
-  logoUrl: string | null;
-  home?: boolean;
+function PostMatchRecap({ spotlight, prediction, score, viewer, onLeaderboard, onAchievements }: {
+  spotlight: Spotlight;
+  prediction: Prediction;
+  score: PredictionScore;
+  viewer: SeasonViewer | null;
+  onLeaderboard: () => void;
+  onAchievements: () => void;
 }) {
-  const [failedLogoUrl, setFailedLogoUrl] = useState<string | null>(null);
-  const showCommunityLogo = Boolean(logoUrl && logoUrl !== failedLogoUrl);
+  const { t } = useI18n();
+  const result = spotlight.result;
+  if (!result) return null;
+  const playerName = (playerId: string) => spotlight.players.find((player) => String(player.id) === playerId)?.name
+    || (playerId === NO_GOAL ? t("No goal") : t("Pending confirmation"));
+  const teamName = (clubId: string) => clubId === String(spotlight.homeClubId)
+    ? spotlight.homeName
+    : clubId === String(spotlight.awayClubId)
+      ? spotlight.awayName
+      : t("No goal");
+  const newlyUnlocked = (viewer?.badges || []).filter((badge) =>
+    badge.unlocked && badge.earnedAt !== null && Math.abs(badge.earnedAt - score.scoredAt) < 2_000);
+  const breakdown = [
+    {
+      label: t("Match outcome"),
+      points: score.outcomePoints,
+      prediction: `${prediction.homeScore} - ${prediction.awayScore}`,
+      result: `${result.homeScore} - ${result.awayScore}`,
+    },
+    {
+      label: t("Exact score"),
+      points: score.exactScorePoints,
+      prediction: `${prediction.homeScore} - ${prediction.awayScore}`,
+      result: `${result.homeScore} - ${result.awayScore}`,
+    },
+    {
+      label: t("First scorer"),
+      points: score.firstScorerPoints,
+      prediction: playerName(prediction.firstScorer),
+      result: playerName(result.firstScorer),
+    },
+    {
+      label: t("Goal window"),
+      points: score.goalWindowPoints,
+      prediction: prediction.goalWindow === NO_GOAL ? t("No goal") : prediction.goalWindow,
+      result: result.goalWindow === NO_GOAL ? t("No goal") : result.goalWindow,
+    },
+    {
+      label: t("First team"),
+      points: score.firstTeamPoints,
+      prediction: teamName(prediction.firstTeam),
+      result: teamName(result.firstTeam),
+    },
+  ];
 
   return (
-    <div className="team-mark">
-      <div className={`team-badge${home ? " home" : ""}${showCommunityLogo ? " community" : ""}`}>
-        {showCommunityLogo
-          ? <Image className="team-community-logo" src={logoUrl!} alt="" width={88} height={96} referrerPolicy="no-referrer" onError={() => setFailedLogoUrl(logoUrl)} />
-          : mark}
+    <section className="post-match-recap" id="prediction" aria-labelledby="post-match-title">
+      <header className="post-match-heading">
+        <div>
+          <span><CheckCircle size={18} weight="fill" /> {t("Your match review")}</span>
+          <h2 id="post-match-title">{t("The final whistle.")}</h2>
+          <p>{t("Your prediction has been scored across all five categories.")}</p>
+        </div>
+        <div className="post-match-total"><span>{t("Points awarded")}</span><strong>+{score.totalPoints}</strong><small>{t("out of 15")}</small></div>
+      </header>
+
+      <div className="post-match-scoreline">
+        <div><span>{t("Your prediction")}</span><strong>{prediction.homeScore} - {prediction.awayScore}</strong><small>{spotlight.homeName} / {spotlight.awayName}</small></div>
+        <div className={prediction.homeScore === result.homeScore && prediction.awayScore === result.awayScore ? "recap-verdict hit" : "recap-verdict"}>
+          {prediction.homeScore === result.homeScore && prediction.awayScore === result.awayScore
+            ? <Check size={20} weight="bold" />
+            : <Crosshair size={20} />}
+          <span>{prediction.homeScore === result.homeScore && prediction.awayScore === result.awayScore ? t("Exact call") : t("Final result")}</span>
+        </div>
+        <div><span>{t("Final result")}</span><strong>{result.homeScore} - {result.awayScore}</strong><small>{playerName(result.firstScorer)}{result.firstGoalMinute ? `, ${result.firstGoalMinute}'` : ""}</small></div>
       </div>
-      <strong>{name}</strong>
-      <span>{position ? `#${position}` : "Unranked"} in {competition}</span>
+
+      <div className="post-match-body">
+        <div className="post-match-breakdown">
+          <h3>{t("Points breakdown")}</h3>
+          {breakdown.map((item) => (
+            <article className={item.points ? "hit" : "miss"} key={item.label}>
+              <span>{item.points ? <Check size={17} weight="bold" /> : <X size={16} />}</span>
+              <div><strong>{item.label}</strong><small>{item.prediction} <i>/</i> {item.result}</small></div>
+              <b>+{item.points}</b>
+            </article>
+          ))}
+        </div>
+
+        <aside className="post-match-season">
+          <div className="season-impact">
+            <span>{t("Season impact")}</span>
+            <div><strong>{viewer?.rank ? `#${viewer.rank}` : "-"}</strong><small>{t("Current rank")}</small></div>
+            <div><strong>{viewer?.stats.points ?? score.totalPoints}</strong><small>{t("Season points")}</small></div>
+          </div>
+
+          <div className="recap-badges">
+            <span>{t("New achievements")}</span>
+            {newlyUnlocked.length ? newlyUnlocked.map((badge) => {
+              const Icon = badgeIcons[badge.key];
+              return <div key={badge.key}><Icon size={25} weight="fill" /><span><strong>{t(badge.name)}</strong><small>{t(badge.description)}</small></span></div>;
+            }) : <p><Medal size={22} weight="duotone" /> {t("No new badge this week.")}</p>}
+          </div>
+
+          <div className="recap-actions">
+            <button type="button" onClick={onLeaderboard}>{t("View full leaderboard")}<ArrowRight size={17} /></button>
+            <button type="button" className="secondary" onClick={onAchievements}>{t("View achievements")}<Medal size={17} /></button>
+          </div>
+        </aside>
+      </div>
+    </section>
+  );
+}
+
+function CommunityTrends({ trends, loading, homeName, awayName }: {
+  trends: PredictionTrends | null;
+  loading: boolean;
+  homeName: string;
+  awayName: string;
+}) {
+  const { t } = useI18n();
+  const outcomeLabels = {
+    home: homeName,
+    draw: t("Draw"),
+    away: awayName,
+  } as const;
+
+  return (
+    <section className="community-trends" aria-labelledby="community-trends-title" aria-busy={loading}>
+      <div className="trends-heading">
+        <div>
+          <UsersThree size={22} weight="duotone" />
+          <h3 id="community-trends-title">{t("Community picks")}</h3>
+        </div>
+        <strong>{loading && !trends ? t("Loading") : t("{count} locked", { count: trends?.total || 0 })}</strong>
+      </div>
+
+      {loading && !trends ? (
+        <div className="trends-skeleton" aria-label={t("Loading community picks")}><span /><span /><span /></div>
+      ) : !trends ? (
+        <p className="trends-message">{t("Community picks could not be loaded right now.")}</p>
+      ) : !trends.available ? (
+        <p className="trends-message">
+          {trends.total === 0
+            ? t("Be the first to lock a prediction.")
+            : t("{count} more picks needed before anonymous trends appear.", { count: trends.minimumSampleSize - trends.total })}
+        </p>
+      ) : (
+        <div className="trends-grid">
+          <div className="outcome-trends">
+            <span>{t("Match result")}</span>
+            <div>
+              {trends.outcomes.map((item) => (
+                <article key={item.key}>
+                  <strong>{item.percentage}%</strong>
+                  <span>{outcomeLabels[item.key as keyof typeof outcomeLabels] || item.label}</span>
+                  <small>{t("{count} picks", { count: item.count })}</small>
+                </article>
+              ))}
+            </div>
+          </div>
+          <TrendRanking title={t("Top scorelines")} items={trends.topScores} />
+          <TrendRanking title={t("First goalscorer ranking")} items={trends.topScorers} />
+        </div>
+      )}
+      <p className="trends-privacy">{t("Anonymous totals only. Trends refresh after every locked prediction.")}</p>
+    </section>
+  );
+}
+
+function TrendRanking({ title, items }: { title: string; items: PredictionTrends["topScores"] }) {
+  return (
+    <div className="trend-ranking">
+      <span>{title}</span>
+      <ol>
+        {items.map((item, index) => (
+          <li key={item.key}>
+            <i>{index + 1}</i>
+            <strong>{item.label}</strong>
+            <span>{item.percentage}%</span>
+          </li>
+        ))}
+      </ol>
     </div>
   );
 }
 
+function ScoreBreakdown({ score }: { score: PredictionScore }) {
+  const { t } = useI18n();
+  const items = [
+    [t("Result"), score.outcomePoints],
+    [t("Exact"), score.exactScorePoints],
+    [t("Scorer"), score.firstScorerPoints],
+    [t("Window"), score.goalWindowPoints],
+    [t("First team"), score.firstTeamPoints],
+  ] as const;
+  return <div className="scoring-key awarded" aria-label={t("Points breakdown")}>{items.map(([label, points]) => <span className={points ? "hit" : "miss"} key={label}>{label} <b>+{points}</b></span>)}</div>;
+}
+
+function TeamMark({ initials: mark, name, logoUrl, color, position, competition, home = false }: {
+  initials: string;
+  name: string;
+  logoUrl: string | null;
+  color: string | null;
+  position: number | null;
+  competition: string;
+  home?: boolean;
+}) {
+  const { t } = useI18n();
+  const background = color
+    ? `linear-gradient(135deg, rgba(255,255,255,.2), transparent 38%), ${color}`
+    : undefined;
+  return <div className="team-mark"><div className={home ? "team-badge home" : "team-badge"} style={{ background }}><span>{mark}</span>{logoUrl && <Image src={logoUrl} alt={`${name} logo`} width={76} height={76} onError={(event) => { event.currentTarget.style.display = "none"; }} />}</div><strong>{name}</strong><span>{t("{position} in {competition}", { position: position ? `#${position}` : t("Unranked"), competition })}</span></div>;
+}
+
 function SoccerverseLinks({ spotlight }: { spotlight: Spotlight }) {
+  const { t } = useI18n();
   if (!spotlight.fixtureId || !spotlight.countryCode || spotlight.divisionLevel < 0) return null;
   const matchUrl = `https://play.soccerverse.com/match/${spotlight.fixtureId}`;
   const leagueUrl = `https://play.soccerverse.com/country/${spotlight.countryCode}/league/${spotlight.divisionLevel + 1}`;
-  return <div className="soccerverse-links"><span>Open in Soccerverse</span><div><a href={matchUrl} target="_blank" rel="noreferrer" aria-label={`${spotlight.homeName} vs ${spotlight.awayName} on Soccerverse`}>Match<ArrowSquareOut size={15} weight="bold" /></a><a href={leagueUrl} target="_blank" rel="noreferrer" aria-label={`${spotlight.competitionName} on Soccerverse`}>League<ArrowSquareOut size={15} weight="bold" /></a></div></div>;
+  return <div className="soccerverse-links"><span>{t("Open in Soccerverse")}</span><div><a href={matchUrl} target="_blank" rel="noreferrer" aria-label={`${spotlight.homeName} vs ${spotlight.awayName} · Soccerverse`}>{t("Match")}<ArrowSquareOut size={15} weight="bold" /></a><a href={leagueUrl} target="_blank" rel="noreferrer" aria-label={`${spotlight.competitionName} · Soccerverse`}>{t("League")}<ArrowSquareOut size={15} weight="bold" /></a></div></div>;
 }
 
 function positionMatchup(spotlight: Spotlight) {
@@ -919,13 +1227,15 @@ function strengthMatchup(spotlight: Spotlight) {
 }
 
 function ScoreControl({ label, value, disabled, onChange }: { label: string; value: number; disabled: boolean; onChange: (value: number) => void }) {
-  return <div className="score-control"><span>{label}</span><div><button type="button" disabled={disabled} onClick={() => onChange(Math.max(0, value - 1))} aria-label={`Decrease ${label} score`}>−</button><strong>{value}</strong><button type="button" disabled={disabled} onClick={() => onChange(Math.min(9, value + 1))} aria-label={`Increase ${label} score`}>+</button></div></div>;
+  const { t } = useI18n();
+  return <div className="score-control"><span>{label}</span><div><button type="button" disabled={disabled} onClick={() => onChange(Math.max(0, value - 1))} aria-label={t("Decrease {team} score", { team: label })}>−</button><strong>{value}</strong><button type="button" disabled={disabled} onClick={() => onChange(Math.min(9, value + 1))} aria-label={t("Increase {team} score", { team: label })}>+</button></div></div>;
 }
 
-function PlayerPicker({ players, homeClubId, awayClubId, homeName, awayName, value, disabled, loading, onChange }: {
+function PlayerPicker({ players, homeClubId, awayClubId, allowedClubIds, homeName, awayName, value, disabled, loading, onChange }: {
   players: SpotlightPlayer[];
   homeClubId: number;
   awayClubId: number;
+  allowedClubIds: number[];
   homeName: string;
   awayName: string;
   value: string;
@@ -933,6 +1243,7 @@ function PlayerPicker({ players, homeClubId, awayClubId, homeName, awayName, val
   loading: boolean;
   onChange: (playerId: string) => void;
 }) {
+  const { t } = useI18n();
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
   const [team, setTeam] = useState<"all" | "home" | "away">("all");
@@ -940,10 +1251,15 @@ function PlayerPicker({ players, homeClubId, awayClubId, homeName, awayName, val
   const pickerRef = useRef<HTMLDivElement>(null);
   const selected = players.find((player) => String(player.id) === value);
   const normalizedQuery = query.trim().toLocaleLowerCase();
+  const effectiveTeam = (team === "home" && !allowedClubIds.includes(homeClubId))
+    || (team === "away" && !allowedClubIds.includes(awayClubId))
+    ? "all"
+    : team;
   const visiblePlayers = players
-    .filter((player) => team === "all"
-      || (team === "home" && player.clubId === homeClubId)
-      || (team === "away" && player.clubId === awayClubId))
+    .filter((player) => allowedClubIds.includes(player.clubId))
+    .filter((player) => effectiveTeam === "all"
+      || (effectiveTeam === "home" && player.clubId === homeClubId)
+      || (effectiveTeam === "away" && player.clubId === awayClubId))
     .filter((player) => positionCategory === "all" || positionCategories(player.position).includes(positionCategory))
     .filter((player) => !normalizedQuery
       || player.name.toLocaleLowerCase().includes(normalizedQuery)
@@ -973,7 +1289,7 @@ function PlayerPicker({ players, homeClubId, awayClubId, homeName, awayName, val
 
   return (
     <div className="field-block player-picker" ref={pickerRef}>
-      <span id="first-scorer-label">First goalscorer</span>
+      <span id="first-scorer-label">{t("First goalscorer")}</span>
       <button
         className="player-picker-trigger"
         type="button"
@@ -985,37 +1301,41 @@ function PlayerPicker({ players, homeClubId, awayClubId, homeName, awayName, val
       >
         {selected ? <PlayerPortrait player={selected} /> : <span className="player-portrait empty">{loading ? "..." : value === NO_GOAL ? "0" : "?"}</span>}
         <span className="player-trigger-copy">
-          <strong>{selected?.name || (loading ? "Squads are loading" : value === NO_GOAL ? "No goalscorer" : "Choose a player")}</strong>
-          {selected ? <small><span>{selected.clubId === homeClubId ? homeName : awayName}</span><PositionBadge position={selected.position} />{selected.rating && <span>{selected.rating} OVR</span>}</small> : <small>{value === NO_GOAL ? "0-0 prediction" : "Search both squads"}</small>}
+          <strong>{selected?.name || (loading ? "…" : value === NO_GOAL ? t("No goal") : t("Choose a player"))}</strong>
+          {selected ? <small><span>{selected.clubId === homeClubId ? homeName : awayName}</span><PositionBadge position={selected.position} />{selected.rating && <span>{selected.rating} OVR</span>}</small> : <small>{value === NO_GOAL ? "0-0" : t("Search both squads")}</small>}
         </span>
-        <span className="player-trigger-action">{selected ? "Change" : "Choose"}<CaretDown size={16} weight="bold" /></span>
+        <span className="player-trigger-action">{selected ? t("Change") : t("Choose")}<CaretDown size={16} weight="bold" /></span>
       </button>
 
       {open && <div className="player-picker-popover">
         <div className="player-picker-tools">
           <label className="player-search">
             <MagnifyingGlass size={17} />
-            <span className="sr-only">Search players</span>
-            <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search by player name" />
+            <span className="sr-only">{t("Search players")}</span>
+            <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder={t("Search by player name")} />
           </label>
-          <div className="player-team-filter" aria-label="Filter players by team">
+          <div className="player-team-filter" aria-label={t("Filter players by team")}>
             {[
-              { value: "all", label: "All" },
+              { value: "all", label: t("All players") },
               { value: "home", label: homeName },
               { value: "away", label: awayName },
-            ].map((option) => <button type="button" key={option.value} className={team === option.value ? "active" : ""} onClick={() => setTeam(option.value as "all" | "home" | "away")}>{option.label}</button>)}
+            ].map((option) => {
+              const unavailable = (option.value === "home" && !allowedClubIds.includes(homeClubId))
+                || (option.value === "away" && !allowedClubIds.includes(awayClubId));
+              return <button type="button" key={option.value} disabled={unavailable} className={effectiveTeam === option.value ? "active" : ""} onClick={() => setTeam(option.value as "all" | "home" | "away")}>{option.label}</button>;
+            })}
           </div>
-          <div className="player-position-filter" aria-label="Filter players by position">
+          <div className="player-position-filter" aria-label={t("Filter players by position")}>
             {[
-              { value: "all", label: "All", title: "All positions" },
-              { value: "FWD", label: "FWD", title: "Forwards" },
-              { value: "MID", label: "MID", title: "Midfielders" },
-              { value: "DEF", label: "DEF", title: "Defenders" },
-              { value: "GK", label: "GK", title: "Goalkeepers" },
+              { value: "all", label: t("All positions"), title: t("All positions") },
+              { value: "FWD", label: "FWD", title: t("Forwards") },
+              { value: "MID", label: "MID", title: t("Midfielders") },
+              { value: "DEF", label: "DEF", title: t("Defenders") },
+              { value: "GK", label: "GK", title: t("Goalkeepers") },
             ].map((option) => <button type="button" key={option.value} title={option.title} aria-pressed={positionCategory === option.value} className={positionCategory === option.value ? "active" : ""} onClick={() => setPositionCategory(option.value as "all" | PositionCategory)}>{option.label}</button>)}
           </div>
         </div>
-        <div className="player-options" role="listbox" aria-label="First goalscorer">
+        <div className="player-options" role="listbox" aria-label={t("First goalscorer")}>
           {visiblePlayers.map((player) => <button
             type="button"
             role="option"
@@ -1029,7 +1349,7 @@ function PlayerPicker({ players, homeClubId, awayClubId, homeName, awayName, val
             {player.rating && <b>{player.rating}</b>}
             {String(player.id) === value && <Check size={16} weight="bold" />}
           </button>)}
-          {!visiblePlayers.length && <div className="player-empty"><MagnifyingGlass size={22} /><strong>No player found</strong><span>Try another position, name or team.</span></div>}
+          {!visiblePlayers.length && <div className="player-empty"><MagnifyingGlass size={22} /><strong>{t("No players match these filters.")}</strong></div>}
         </div>
       </div>}
     </div>
@@ -1046,99 +1366,101 @@ function PositionBadge({ position }: { position: number | null }) {
 }
 
 function HowItWorksView({ spotlight, onPlay }: { spotlight: Spotlight; onPlay: () => void }) {
-  const exampleScorer = spotlight.players.find((player) => positionCategories(player.position).includes("FWD"))?.name || "your chosen forward";
-  const playLabel = spotlight.fixtureId ? `Play ${spotlight.homeName} vs ${spotlight.awayName}` : "Play this week";
+  const { t } = useI18n();
+  const exampleScorer = spotlight.players.find((player) => positionCategories(player.position).includes("FWD"))?.name || t("your chosen forward");
+  const playLabel = spotlight.fixtureId ? `${spotlight.homeName} vs ${spotlight.awayName}` : t("Play this week");
   const flow = [
-    { icon: GlobeHemisphereWest, title: "Discover", text: "One fixture from the wider Soccerverse world becomes the weekly Spotlight." },
-    { icon: Strategy, title: "Predict", text: "Call the score, first scorer, first-goal window and first team to score." },
-    { icon: Lock, title: "Lock", text: "Save your call with one account. You can edit every detail until kick-off." },
-    { icon: Trophy, title: "Score", text: "The final match data awards points, updates the table and unlocks badges." },
+    { icon: GlobeHemisphereWest, title: t("Discover"), text: t("One fixture from the wider Soccerverse world becomes the weekly Spotlight.") },
+    { icon: Strategy, title: t("Predict"), text: t("Call the score, first scorer, first-goal window and first team to score.") },
+    { icon: Lock, title: t("Lock"), text: t("Save your call with one account. You can edit every detail until kick-off.") },
+    { icon: Trophy, title: t("Score"), text: t("The final match data awards points, updates the table and unlocks badges.") },
   ];
   const scoring = [
-    { label: "Match outcome", points: 3, text: "Correct home win, draw or away win." },
-    { label: "Exact score", points: 5, text: "A bonus on top of the outcome points." },
-    { label: "First scorer", points: 4, text: "Name the player who scores first." },
-    { label: "Goal window", points: 2, text: "Place the opening goal in the right time band." },
-    { label: "First team", points: 1, text: "Choose which club opens the scoring." },
+    { label: t("Match outcome"), points: 3, text: t("Correct home win, draw or away win.") },
+    { label: t("Exact score"), points: 5, text: t("A bonus on top of the outcome points.") },
+    { label: t("First scorer"), points: 4, text: t("Name the player who scores first.") },
+    { label: t("Goal window"), points: 2, text: t("Place the opening goal in the right time band.") },
+    { label: t("First team"), points: 1, text: t("Choose which club opens the scoring.") },
   ];
 
   return (
     <section className="explainer-page">
       <section className="guide-hero">
-        <div className="guide-hero-copy"><span><BookOpen size={18} weight="fill" /> Game guide</span><h1>One match.<br />Four calls.</h1><p>A weekly prediction game built around one carefully selected Soccerverse fixture.</p><button onClick={onPlay}>{playLabel}<ArrowRight size={18} weight="bold" /></button></div>
+        <div className="guide-hero-copy"><span><BookOpen size={18} weight="fill" /> {t("Game guide")}</span><h1>{t("One match. Four calls.")}</h1><p>{t("A weekly prediction game built around one carefully selected Soccerverse fixture.")}</p><button onClick={onPlay}>{playLabel}<ArrowRight size={18} weight="bold" /></button></div>
         <div className="guide-hero-visual">
-          <Image src="/stadium-night.jpg" alt="A floodlit stadium ready for the weekly Spotlight" fill sizes="(max-width: 820px) 100vw, 48vw" />
-          <div className="guide-fixture"><span>This week</span><strong>{spotlight.homeName}<i>vs</i>{spotlight.awayName}</strong><small>{spotlight.competitionName}</small></div>
+          <Image src="/stadium-night.jpg" alt={t("A floodlit stadium ready for the weekly Spotlight")} fill sizes="(max-width: 820px) 100vw, 48vw" />
+          <div className="guide-fixture"><span>{t("This week")}</span><strong>{spotlight.homeName}<i>vs</i>{spotlight.awayName}</strong><small>{spotlight.competitionName}</small></div>
         </div>
       </section>
 
       <section className="game-flow" aria-labelledby="game-flow-title">
-        <div className="guide-heading"><h2 id="game-flow-title">The complete game loop</h2><p>From Monday&apos;s selection to the final whistle, every action has a clear place.</p></div>
+        <div className="guide-heading"><h2 id="game-flow-title">{t("The complete game loop")}</h2><p>{t("From Monday's selection to the final whistle, every action has a clear place.")}</p></div>
         <div className="flow-track">{flow.map(({ icon: Icon, title, text }) => <article key={title}><Icon size={27} weight="duotone" /><h3>{title}</h3><p>{text}</p></article>)}</div>
       </section>
 
       <section className="prediction-tutorial" aria-labelledby="tutorial-title">
-        <div className="tutorial-copy"><span>Worked example</span><h2 id="tutorial-title">Build one complete call.</h2><p>The four answers describe the same match story. A 0-0 prediction automatically switches every goal detail to no goal.</p></div>
+        <div className="tutorial-copy"><span>{t("Worked example")}</span><h2 id="tutorial-title">{t("Build one complete call.")}</h2><p>{t("The four answers describe the same match story. A 0-0 prediction automatically switches every goal detail to no goal.")}</p></div>
         <div className="tutorial-board">
           <div className="tutorial-score"><span>{spotlight.homeName}</span><strong>2 - 1</strong><span>{spotlight.awayName}</span></div>
-          <div className="tutorial-details"><div><Crosshair size={20} /><span>First scorer</span><strong>{exampleScorer}</strong></div><div><Clock size={20} /><span>Goal window</span><strong>16-30</strong></div><div><SoccerBall size={20} /><span>Scores first</span><strong>{spotlight.homeName}</strong></div></div>
-          <p>If the final result matches every call above, this prediction earns the full 15 points.</p>
+          <div className="tutorial-details"><div><Crosshair size={20} /><span>{t("First scorer")}</span><strong>{exampleScorer}</strong></div><div><Clock size={20} /><span>{t("Goal window")}</span><strong>16-30</strong></div><div><SoccerBall size={20} /><span>{t("Scores first")}</span><strong>{spotlight.homeName}</strong></div></div>
+          <p>{t("If the final result matches every call above, this prediction earns the full 15 points.")}</p>
         </div>
       </section>
 
       <section className="scoring-guide" aria-labelledby="scoring-title">
-        <div className="guide-heading"><h2 id="scoring-title">Fifteen points are available</h2><p>Each correct detail scores independently, so a missed result can still earn useful points.</p></div>
+        <div className="guide-heading"><h2 id="scoring-title">{t("Fifteen points are available")}</h2><p>{t("Each correct detail scores independently, so a missed result can still earn useful points.")}</p></div>
         <div className="score-map">{scoring.map((item) => <article key={item.label}><span>+{item.points}</span><div><h3>{item.label}</h3><p>{item.text}</p></div></article>)}</div>
       </section>
 
       <section className="rules-guide" aria-labelledby="rules-title">
-        <div><CalendarCheck size={36} weight="duotone" /><h2 id="rules-title">Rules worth knowing</h2><p>No hidden mechanics. The same rules apply to every weekly Spotlight.</p></div>
+        <div><CalendarCheck size={36} weight="duotone" /><h2 id="rules-title">{t("Rules worth knowing")}</h2><p>{t("No hidden mechanics. The same rules apply to every weekly Spotlight.")}</p></div>
         <div className="rules-list">
-          <details><summary>Can I change a prediction?</summary><p>Yes. Update it as often as you want before the published kick-off time. The server rejects every change after kick-off.</p></details>
-          <details><summary>What happens after the match?</summary><p>Under the Lights reads the final score and match events, calculates each category, then updates your history, badges and season rank.</p></details>
-          <details><summary>How does a 0-0 prediction work?</summary><p>Select 0-0 and the scorer, window and first-team fields become no goal. A perfect goalless call can still earn 15 points.</p></details>
-          <details><summary>Why do I need an account?</summary><p>Your account keeps predictions, points and achievements attached to one season identity across devices.</p></details>
-          <details><summary>When do new matches appear?</summary><p>The Spotlight Radar prepares a new weekend shortlist every Monday. An editor then publishes the match that best fits the project.</p></details>
+          <details><summary>{t("Can I change a prediction?")}</summary><p>{t("Yes. Update it as often as you want before the published kick-off time. The server rejects every change after kick-off.")}</p></details>
+          <details><summary>{t("What happens after the match?")}</summary><p>{t("Under the Lights reads the final score and match events, calculates each category, then updates your history, badges and season rank.")}</p></details>
+          <details><summary>{t("How does a 0-0 prediction work?")}</summary><p>{t("Select 0-0 and the scorer, window and first-team fields become no goal. A perfect goalless call can still earn 15 points.")}</p></details>
+          <details><summary>{t("Why do I need an account?")}</summary><p>{t("Your account keeps predictions, points and achievements attached to one season identity across devices.")}</p></details>
+          <details><summary>{t("When do new matches appear?")}</summary><p>{t("The Spotlight Radar prepares a new weekend shortlist every Monday. An editor then publishes the match that best fits the project.")}</p></details>
         </div>
       </section>
 
-      <section className="guide-cta"><div><h2>Ready for this week?</h2><p>Read the match story, study both squads and lock your four calls.</p></div><button onClick={onPlay}>Open the Spotlight<ArrowRight size={18} weight="bold" /></button></section>
+      <section className="guide-cta"><div><h2>{t("Ready for this week?")}</h2><p>{t("Every correct detail adds points. Precision unlocks the rarest achievements.")}</p></div><button onClick={onPlay}>{t("Open the Spotlight")}<ArrowRight size={18} weight="bold" /></button></section>
     </section>
   );
 }
 
 function ProjectView({ onPlay }: { onPlay: () => void }) {
+  const { t } = useI18n();
   return (
     <section className="project-page">
       <section className="project-hero">
-        <div className="project-hero-copy"><span><Lightbulb size={18} weight="fill" /> The project</span><h1>Hidden leagues.<br />Shared stage.</h1><p>Under the Lights turns Soccerverse&apos;s global football world into one shared weekly prediction ritual.</p></div>
-        <div className="project-hero-image"><Image src="/stadium-night.jpg" alt="Football under stadium floodlights" fill priority sizes="(max-width: 820px) 100vw, 52vw" /></div>
+        <div className="project-hero-copy"><span><Lightbulb size={18} weight="fill" /> {t("The project")}</span><h1>{t("Built for the wider Soccerverse world.")}</h1><p>{t("One world. One match. Every week.")}</p></div>
+        <div className="project-hero-image"><Image src="/stadium-night.jpg" alt={t("Football under stadium floodlights")} fill priority sizes="(max-width: 820px) 100vw, 52vw" /></div>
       </section>
 
-      <section className="project-manifesto"><strong>Most football games concentrate attention on familiar names.</strong><p>Soccerverse contains far more: lower divisions, unfamiliar clubs, active managers and competitive stories across the world. Under the Lights exists to find one of those stories and invite everyone to care about it together.</p></section>
+      <section className="project-manifesto"><strong>{t("Most football games concentrate attention on familiar names.")}</strong><p>{t("Soccerverse contains far more: lower divisions, unfamiliar clubs, active managers and competitive stories across the world. Under the Lights exists to find one of those stories and invite everyone to care about it together.")}</p></section>
 
       <section className="radar-story" aria-labelledby="radar-story-title">
-        <div className="radar-intro"><Broadcast size={38} weight="duotone" /><h2 id="radar-story-title">How the Spotlight is chosen</h2><p>Automation builds the shortlist. Editorial judgment chooses the stage.</p></div>
+        <div className="radar-intro"><Broadcast size={38} weight="duotone" /><h2 id="radar-story-title">{t("How the Spotlight is chosen")}</h2><p>{t("Automation builds the shortlist. Editorial judgment chooses the stage.")}</p></div>
         <div className="radar-path">
-          <article><CalendarCheck size={25} /><h3>Read the weekend</h3><p>The Radar scans the Soccerverse calendar for the next playable weekend.</p></article>
-          <article><ChartBar size={25} /><h3>Measure the stakes</h3><p>League positions, points, form and squad balance reveal the strongest sporting stories.</p></article>
-          <article><UsersThree size={25} /><h3>Require active managers</h3><p>Both clubs must have a manager who made a Soccerverse move within the last 14 days.</p></article>
-          <article><Broadcast size={25} /><h3>Publish one Spotlight</h3><p>Twenty candidates reach the control room. One edited match story goes live.</p></article>
+          <article><CalendarCheck size={25} /><h3>{t("Read the weekend")}</h3><p>{t("The Radar scans the Soccerverse calendar for the next playable weekend.")}</p></article>
+          <article><ChartBar size={25} /><h3>{t("Measure the stakes")}</h3><p>{t("League positions, points, form and squad balance reveal the strongest sporting stories.")}</p></article>
+          <article><UsersThree size={25} /><h3>{t("Require active managers")}</h3><p>{t("Both clubs must have a manager who made a Soccerverse move within the last 14 days.")}</p></article>
+          <article><Broadcast size={25} /><h3>{t("Publish one Spotlight")}</h3><p>{t("Twenty candidates reach the control room. One edited match story goes live.")}</p></article>
         </div>
       </section>
 
       <section className="project-principles">
-        <article><GlobeHemisphereWest size={30} weight="duotone" /><h2>A global lens</h2><p>The country and division can change every week. The selection follows the strongest story, not a fixed league.</p></article>
-        <article><Strategy size={30} weight="duotone" /><h2>Skill over luck</h2><p>Five scoring categories reward a coherent reading of the match, not a single binary guess.</p></article>
-        <article><Medal size={30} weight="duotone" /><h2>A season memory</h2><p>Every result builds a permanent history of points, exact calls, streaks, countries and badges.</p></article>
+        <article><GlobeHemisphereWest size={30} weight="duotone" /><h2>{t("A global lens")}</h2><p>{t("The country and division can change every week. The selection follows the strongest story, not a fixed league.")}</p></article>
+        <article><Strategy size={30} weight="duotone" /><h2>{t("Skill over luck")}</h2><p>{t("Five scoring categories reward a coherent reading of the match, not a single binary guess.")}</p></article>
+        <article><Medal size={30} weight="duotone" /><h2>{t("A season memory")}</h2><p>{t("Every result builds a permanent history of points, exact calls, streaks, countries and badges.")}</p></article>
       </section>
 
       <section className="built-open">
-        <div><GithubLogo size={40} weight="duotone" /><h2>Built in public</h2><p>Under the Lights is an open-source community companion to Soccerverse. The code, scoring logic and product evolution can be inspected on GitHub.</p><a href="https://github.com/FlorentBL/under-the-lights" target="_blank" rel="noreferrer">View the repository<ArrowSquareOut size={17} weight="bold" /></a></div>
-        <div className="project-stack"><div><Database size={23} /><span>Persistent game data</span><strong>Cloudflare D1</strong></div><div><ShieldCheck size={23} /><span>Player identity</span><strong>Better Auth</strong></div><div><Crosshair size={23} /><span>Match selection</span><strong>Spotlight Radar</strong></div></div>
+        <div><GithubLogo size={40} weight="duotone" /><h2>{t("Built in public")}</h2><p>{t("Under the Lights is an open-source community companion to Soccerverse. The code, scoring logic and product evolution can be inspected on GitHub.")}</p><a href="https://github.com/FlorentBL/under-the-lights" target="_blank" rel="noreferrer">{t("View the repository")}<ArrowSquareOut size={17} weight="bold" /></a></div>
+        <div className="project-stack"><div><Database size={23} /><span>{t("Persistent game data")}</span><strong>Cloudflare D1</strong></div><div><ShieldCheck size={23} /><span>{t("Player identity")}</span><strong>Better Auth</strong></div><div><Crosshair size={23} /><span>{t("Match selection")}</span><strong>Spotlight Radar</strong></div></div>
       </section>
 
-      <section className="community-note"><div><UsersThree size={35} weight="duotone" /><h2>A community project</h2><p>Under the Lights adds a weekly prediction layer around Soccerverse. Match, club and player information comes from the Soccerverse world, while this experience is developed openly by the community.</p></div><div className="community-actions"><a href="https://guide.soccerverse.com" target="_blank" rel="noreferrer">Discover Soccerverse<ArrowSquareOut size={17} /></a><button onClick={onPlay}>Play the Spotlight<ArrowRight size={18} /></button></div></section>
+      <section className="community-note"><div><UsersThree size={35} weight="duotone" /><h2>{t("A community project")}</h2><p>{t("Under the Lights adds a weekly prediction layer around Soccerverse. Match, club and player information comes from the Soccerverse world, while this experience is developed openly by the community.")}</p></div><div className="community-actions"><a href="https://guide.soccerverse.com" target="_blank" rel="noreferrer">Soccerverse<ArrowSquareOut size={17} /></a><button onClick={onPlay}>{t("Open the Spotlight")}<ArrowRight size={18} /></button></div></section>
     </section>
   );
 }
@@ -1148,33 +1470,31 @@ function SeasonEmpty({ title, description, compact = false }: { title: string; d
 }
 
 function LeaderboardView({ leaders, loading }: { leaders: SeasonPayload["leaderboard"]; loading: boolean }) {
+  const { t } = useI18n();
   return (
     <section className="inner-page">
-      <div className="page-intro"><div><Trophy size={25} weight="fill" /><span>Season 1 standings</span></div><h1>Every call<br />counts.</h1><p>Accuracy creates distance. Consistency keeps you under the lights.</p></div>
+      <div className="page-intro"><div><Trophy size={25} weight="fill" /><span>{t("Season leaderboard")}</span></div><h1>{t("Global table. Weekly stakes.")}</h1><p>{t("Weekly precision builds a reputation across every league.")}</p></div>
       <div className="leaderboard-layout">
-        <div className="leaderboard-table"><div className="table-header"><span>Rank</span><span>Player</span><span>Exact scores</span><span>Points</span></div>{leaders.map((entry) => <div className={entry.isViewer ? "table-row current" : "table-row"} key={entry.participantId}><span className="rank-number">{String(entry.rank).padStart(2, "0")}</span><span className="player-name"><CompetitorAvatar name={entry.displayName} avatarUrl={entry.avatarUrl} /><a className="public-player-link" href={`/players/${encodeURIComponent(entry.participantId)}`}>{entry.displayName}</a><small>{entry.played} played · {entry.badges} badges</small>{entry.soccerverseUsername && <SoccerverseAccountLink username={entry.soccerverseUsername} compact />}</span><span>{entry.exactScores}</span><strong>{entry.points}</strong></div>)}{!leaders.length && <SeasonEmpty title={loading ? "Loading the standings" : "No points awarded yet"} description={loading ? "Collecting the current season." : "The leaderboard starts as soon as the first spotlight is settled."} />}</div>
-        <aside className="season-card"><Medal size={34} weight="fill" /><h2>Season honours</h2><p>Accuracy decides the table. Exploration, timing and bold calls build a separate badge collection.</p><div><span>Current campaign</span><strong>Season 1</strong></div></aside>
+        <div className="leaderboard-table"><div className="table-header"><span>{t("Rank")}</span><span>{t("Player")}</span><span>{t("Exact scores")}</span><span>{t("Points")}</span></div>{leaders.map((entry) => <div className={entry.isViewer ? "table-row current" : "table-row"} key={entry.participantId}><span className="rank-number">{String(entry.rank).padStart(2, "0")}</span><span className="player-name"><CompetitorAvatar name={entry.displayName} avatarUrl={entry.avatarUrl} /><a className="public-player-link" href={`/players/${encodeURIComponent(entry.participantId)}`}>{entry.displayName}</a><small>{t("{played} played · {badges} badges", { played: entry.played, badges: entry.badges })}</small>{entry.soccerverseUsername && <SoccerverseAccountLink username={entry.soccerverseUsername} compact />}</span><span>{entry.exactScores}</span><strong>{entry.points}</strong></div>)}{!leaders.length && <SeasonEmpty title={loading ? t("Loading the standings") : t("No points awarded yet")} description={loading ? t("Collecting the current season.") : t("The leaderboard starts as soon as the first spotlight is settled.")} />}</div>
+        <aside className="season-card"><Medal size={34} weight="fill" /><h2>{t("Season honours")}</h2><p>{t("Accuracy decides the table. Exploration, timing and bold calls build a separate badge collection.")}</p><div><span>{t("Current campaign")}</span><strong>{t("Season 1")}</strong></div></aside>
       </div>
     </section>
   );
 }
 
 function AchievementsView({ viewer, user, loading, onSignIn }: { viewer: SeasonViewer | null; user: { name: string } | null; loading: boolean; onSignIn: () => void }) {
-  if (!user) return <section className="inner-page signed-out-profile"><Medal size={72} weight="duotone" /><h1>Your cabinet<br />starts here.</h1><p>Sign in to track progress and keep every badge you unlock.</p><button onClick={onSignIn}><SignInIcon size={18} weight="bold" /> Sign in to see achievements</button></section>;
-  if (loading || !viewer) return <section className="inner-page"><SeasonEmpty title="Loading your achievements" description="Calculating progress from your prediction history." /></section>;
+  const { t, locale } = useI18n();
+  if (!user) return <section className="inner-page signed-out-profile"><Medal size={72} weight="duotone" /><h1>{t("Your trophy room")}</h1><p>{t("Every correct detail adds points. Precision unlocks the rarest achievements.")}</p><button onClick={onSignIn}><SignInIcon size={18} weight="bold" /> {t("Sign in or create an account")}</button></section>;
+  if (loading || !viewer) return <section className="inner-page"><SeasonEmpty title={t("Loading your achievements")} description={t("Calculating progress from your prediction history.")} /></section>;
   const unlocked = viewer.badges.filter((badge) => badge.unlocked).length;
   const completion = Math.round(unlocked / viewer.badges.length * 100);
   return (
     <section className="inner-page">
-      <div className="page-intro"><div><Medal size={25} weight="fill" /><span>Your trophy cabinet</span></div><h1>Build your<br />legend.</h1><p>Collect the moments that turn a good prediction into a story.</p></div>
-      <div className="badge-summary"><div><strong>{unlocked}</strong><span>Unlocked</span></div><div><strong>{viewer.badges.length - unlocked}</strong><span>In progress</span></div><div><strong>{completion}%</strong><span>Collection complete</span></div></div>
-      <div className="badge-grid">{viewer.badges.map((badge) => { const Icon = badgeIcons[badge.key]; return <article className={badge.unlocked ? "badge-card unlocked" : "badge-card"} key={badge.key}><div className="badge-icon">{badge.unlocked ? <Icon size={37} weight="fill" /> : <Lock size={31} />}</div><div><span>{badge.unlocked ? "Unlocked" : `${badge.progress} of ${badge.target}`}</span><h2>{badge.name}</h2><p>{badge.description}</p></div><small>{badge.unlocked ? <><Check size={16} weight="bold" /> {badge.earnedAt ? `Earned ${formatShortDate(badge.earnedAt)}` : "Earned"}</> : `${Math.round((badge.progress / badge.target) * 100)}% complete`}</small></article>; })}</div>
+      <div className="page-intro"><div><Medal size={25} weight="fill" /><span>{t("Your trophy room")}</span></div><h1>{t("Achievements")}</h1><p>{t("Every correct detail adds points. Precision unlocks the rarest achievements.")}</p></div>
+      <div className="badge-summary"><div><strong>{unlocked}</strong><span>{t("Unlocked")}</span></div><div><strong>{viewer.badges.length - unlocked}</strong><span>{t("In progress")}</span></div><div><strong>{completion}%</strong><span>{t("Collection complete")}</span></div></div>
+      <div className="badge-grid">{viewer.badges.map((badge) => { const Icon = badgeIcons[badge.key]; return <article className={badge.unlocked ? "badge-card unlocked" : "badge-card"} key={badge.key}><div className="badge-icon">{badge.unlocked ? <Icon size={37} weight="fill" /> : <Lock size={31} />}</div><div><span>{badge.unlocked ? t("Unlocked") : t("{progress} of {target}", { progress: badge.progress, target: badge.target })}</span><h2>{t(badge.name)}</h2><p>{t(badge.description)}</p></div><small>{badge.unlocked ? <><Check size={16} weight="bold" /> {badge.earnedAt ? t("Earned {date}", { date: new Intl.DateTimeFormat(locale, { day: "2-digit", month: "short", year: "numeric" }).format(new Date(badge.earnedAt)) }) : t("Earned")}</> : t("{progress}% complete", { progress: Math.round((badge.progress / badge.target) * 100) })}</small></article>; })}</div>
     </section>
   );
-}
-
-function formatShortDate(timestamp: number) {
-  return new Intl.DateTimeFormat("en-GB", { day: "2-digit", month: "short", year: "numeric" }).format(new Date(timestamp));
 }
 
 function historyBreakdown(score: NonNullable<SeasonViewer["history"][number]["score"]>) {
@@ -1188,6 +1508,7 @@ function historyBreakdown(score: NonNullable<SeasonViewer["history"][number]["sc
 }
 
 function ProfileView({ user, viewer, loading, onAchievements, onProfileUpdated, onSignIn }: { user: { name: string; email: string; image?: string | null } | null; viewer: SeasonViewer | null; loading: boolean; onAchievements: () => void; onProfileUpdated: () => Promise<void>; onSignIn: () => void }) {
+  const { t, locale } = useI18n();
   const [soccerverseUsername, setSoccerverseUsername] = useState(viewer?.soccerverseUsername || "");
   const [savedSoccerverseUsername, setSavedSoccerverseUsername] = useState(viewer?.soccerverseUsername || "");
   const [avatarUrl, setAvatarUrl] = useState(viewer?.avatarUrl || user?.image || null);
@@ -1198,7 +1519,7 @@ function ProfileView({ user, viewer, loading, onAchievements, onProfileUpdated, 
   const [profileSaving, setProfileSaving] = useState(false);
   const [profileNotice, setProfileNotice] = useState("");
   const [profileError, setProfileError] = useState("");
-  const [datapackMode, setDatapackMode] = useState<DatapackMode>(viewer?.datapackMode || "default");
+  const [datapackMode, setDatapackMode] = useState<"default" | "community">(viewer?.datapackMode || "community");
   const [datapackSaving, setDatapackSaving] = useState(false);
   const [datapackNotice, setDatapackNotice] = useState("");
   const [datapackError, setDatapackError] = useState("");
@@ -1219,13 +1540,13 @@ function ProfileView({ user, viewer, loading, onAchievements, onProfileUpdated, 
         hasCustomAvatar?: boolean;
         error?: string;
       };
-      if (!response.ok) throw new Error(payload.error || "Profile photo could not be saved");
+      if (!response.ok) throw new Error(payload.error || t("Profile photo could not be saved"));
       setAvatarUrl(payload.avatarUrl || null);
       setHasCustomAvatar(Boolean(payload.hasCustomAvatar));
-      setAvatarNotice(payload.hasCustomAvatar ? "Profile photo updated." : "Custom photo removed.");
+      setAvatarNotice(payload.hasCustomAvatar ? t("Profile photo updated.") : t("Custom photo removed."));
       await onProfileUpdated();
     } catch (error) {
-      setAvatarError(error instanceof Error ? error.message : "Profile photo could not be saved");
+      setAvatarError(error instanceof Error ? error.message : t("Profile photo could not be saved"));
     } finally {
       setAvatarSaving(false);
       if (avatarInputRef.current) avatarInputRef.current.value = "";
@@ -1239,9 +1560,9 @@ function ProfileView({ user, viewer, loading, onAchievements, onProfileUpdated, 
     setAvatarNotice("");
     setAvatarError("");
     try {
-      await saveAvatar(await prepareAvatar(file));
+      await saveAvatar(await prepareAvatar(file, t));
     } catch (error) {
-      setAvatarError(error instanceof Error ? error.message : "Profile photo could not be prepared");
+      setAvatarError(error instanceof Error ? error.message : t("Profile photo could not be prepared"));
       setAvatarSaving(false);
       event.target.value = "";
     }
@@ -1258,14 +1579,14 @@ function ProfileView({ user, viewer, loading, onAchievements, onProfileUpdated, 
         body: JSON.stringify({ soccerverseUsername: value }),
       });
       const payload = await response.json() as { soccerverseUsername?: string | null; error?: string };
-      if (!response.ok) throw new Error(payload.error || "Soccerverse account could not be saved");
+      if (!response.ok) throw new Error(payload.error || t("Soccerverse account could not be saved"));
       const canonicalUsername = payload.soccerverseUsername || "";
       setSoccerverseUsername(canonicalUsername);
       setSavedSoccerverseUsername(canonicalUsername);
-      setProfileNotice(canonicalUsername ? `Connected to @${canonicalUsername}.` : "Soccerverse account removed.");
+      setProfileNotice(canonicalUsername ? t("Connected to @{username}.", { username: canonicalUsername }) : t("Soccerverse account removed."));
       await onProfileUpdated();
     } catch (error) {
-      setProfileError(error instanceof Error ? error.message : "Soccerverse account could not be saved");
+      setProfileError(error instanceof Error ? error.message : t("Soccerverse account could not be saved"));
     } finally {
       setProfileSaving(false);
     }
@@ -1287,22 +1608,22 @@ function ProfileView({ user, viewer, loading, onAchievements, onProfileUpdated, 
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ datapackMode }),
       });
-      const payload = await response.json() as { datapackMode?: DatapackMode; error?: string };
-      if (!response.ok) throw new Error(payload.error || "Datapack source could not be saved");
-      const savedMode = payload.datapackMode || "default";
+      const payload = await response.json() as { datapackMode?: "default" | "community"; error?: string };
+      if (!response.ok) throw new Error(payload.error || t("Datapack source could not be saved"));
+      const savedMode = payload.datapackMode || "community";
       setDatapackMode(savedMode);
       setDatapackNotice(savedMode === "community"
-        ? "Community club crests are now active for the Spotlight."
-        : "Soccerverse standard crests are now active.");
+        ? t("Community club crests are now active.")
+        : t("Soccerverse standard shields are now active."));
       await onProfileUpdated();
     } catch (error) {
-      setDatapackError(error instanceof Error ? error.message : "Datapack source could not be saved");
+      setDatapackError(error instanceof Error ? error.message : t("Datapack source could not be saved"));
     } finally {
       setDatapackSaving(false);
     }
   }
 
-  if (!user) return <section className="inner-page signed-out-profile"><UserCircle size={72} weight="duotone" /><h1>Your season<br />starts here.</h1><p>Sign in to keep every prediction, point and badge together.</p><button onClick={onSignIn}><SignInIcon size={18} weight="bold" /> Sign in or create an account</button></section>;
+  if (!user) return <section className="inner-page signed-out-profile"><UserCircle size={72} weight="duotone" /><h1>{t("My profile")}</h1><p>{t("One world. One match. Every week.")}</p><button onClick={onSignIn}><SignInIcon size={18} weight="bold" /> {t("Sign in or create an account")}</button></section>;
   const stats = viewer?.stats || { points: 0, exactScores: 0, accuracy: 0, countries: 0, predictions: 0 };
   return (
     <section className="inner-page">
@@ -1310,53 +1631,53 @@ function ProfileView({ user, viewer, loading, onAchievements, onProfileUpdated, 
         <div className="profile-avatar-editor">
           <CompetitorAvatar name={user.name} avatarUrl={avatarUrl} className="profile-avatar" />
           <input ref={avatarInputRef} type="file" accept="image/jpeg,image/png,image/webp" onChange={(event) => void selectAvatar(event)} disabled={avatarSaving} />
-          <button type="button" className="profile-photo-button" onClick={() => avatarInputRef.current?.click()} disabled={avatarSaving}>{avatarSaving ? "Preparing..." : "Change photo"}</button>
-          {hasCustomAvatar && <button type="button" className="profile-photo-remove" onClick={() => void saveAvatar(null)} disabled={avatarSaving}>Remove</button>}
+          <button type="button" className="profile-photo-button" onClick={() => avatarInputRef.current?.click()} disabled={avatarSaving}>{avatarSaving ? t("Preparing...") : t("Change photo")}</button>
+          {hasCustomAvatar && <button type="button" className="profile-photo-remove" onClick={() => void saveAvatar(null)} disabled={avatarSaving}>{t("Remove")}</button>}
           {avatarNotice && <small className="profile-photo-notice success" role="status">{avatarNotice}</small>}
           {avatarError && <small className="profile-photo-notice error" role="alert">{avatarError}</small>}
         </div>
-        <div><span>{viewer?.rank ? `Season rank #${viewer.rank}` : "Season 1 competitor"}</span><h1>{user.name}</h1><p>{user.email}</p>{savedSoccerverseUsername && <SoccerverseAccountLink username={savedSoccerverseUsername} />}</div>
-        <div className="profile-actions">{viewer?.participantId && <a href={`/players/${encodeURIComponent(viewer.participantId)}`}>View public profile <ArrowSquareOut size={18} /></a>}<button onClick={onAchievements}>View achievements <ArrowRight size={18} /></button><button className="sign-out-button" onClick={() => authClient.signOut()}><SignOut size={18} /> Sign out</button></div>
+        <div className="profile-identity"><span>{viewer?.rank ? t("Season rank #{rank}", { rank: viewer.rank }) : t("Season 1 competitor")}</span><h1>{user.name}</h1><p>{user.email}</p>{savedSoccerverseUsername && <SoccerverseAccountLink username={savedSoccerverseUsername} />}</div>
+        <div className="profile-actions">{viewer?.participantId && <a href={`/players/${encodeURIComponent(viewer.participantId)}`}>{t("View public profile")} <ArrowSquareOut size={18} /></a>}<button onClick={onAchievements}>{t("View achievements")} <ArrowRight size={18} /></button><button className="sign-out-button" onClick={() => authClient.signOut()}><SignOut size={18} /> {t("Sign out")}</button></div>
       </div>
       <section className="profile-connection" aria-labelledby="soccerverse-account-title">
-        <div className="profile-connection-copy"><SoccerBall size={28} weight="duotone" /><div><h2 id="soccerverse-account-title">Your Soccerverse account</h2><p>Add your in-game username and choose which club crests appear in the weekly Spotlight.</p></div></div>
+        <div className="profile-connection-copy"><SoccerBall size={28} weight="duotone" /><div><h2 id="soccerverse-account-title">{t("Your Soccerverse account")}</h2><p>{t("Add your in-game username and choose which club crests appear in the weekly Spotlight.")}</p></div></div>
         <div className="profile-settings-forms">
           <form onSubmit={submitSoccerverseAccount}>
-            <label htmlFor="soccerverse-username">Soccerverse username</label>
+            <label htmlFor="soccerverse-username">{t("Soccerverse username")}</label>
             <div className="profile-connection-control">
-              <input id="soccerverse-username" value={soccerverseUsername} onChange={(event) => setSoccerverseUsername(event.target.value)} placeholder="For example: klo" autoComplete="off" disabled={profileSaving} />
-              <button type="submit" disabled={profileSaving}>{profileSaving ? "Checking..." : "Save account"}</button>
-              {savedSoccerverseUsername && <button className="remove-account" type="button" onClick={() => void saveSoccerverseAccount("")} disabled={profileSaving}>Remove</button>}
+              <input id="soccerverse-username" value={soccerverseUsername} onChange={(event) => setSoccerverseUsername(event.target.value)} placeholder={t("For example: klo")} autoComplete="off" disabled={profileSaving} />
+              <button type="submit" disabled={profileSaving}>{profileSaving ? "…" : t("Save account")}</button>
+              {savedSoccerverseUsername && <button className="remove-account" type="button" onClick={() => void saveSoccerverseAccount("")} disabled={profileSaving}>{t("Remove")}</button>}
             </div>
-            <small>You can also paste your Soccerverse profile URL. This public link never grants access to your game account.</small>
+            <small>{t("You can also paste your Soccerverse profile URL. This public link never grants access to your game account.")}</small>
             {profileNotice && <span className="profile-form-notice success" role="status">{profileNotice}</span>}
             {profileError && <span className="profile-form-notice error" role="alert">{profileError}</span>}
           </form>
           <form className="datapack-settings" onSubmit={submitDatapackMode}>
             <fieldset>
-              <legend>Datapack source</legend>
+              <legend>{t("Datapack source")}</legend>
               <div className="datapack-options">
                 <label className={datapackMode === "default" ? "datapack-option active" : "datapack-option"}>
                   <input type="radio" name="datapack-mode" value="default" checked={datapackMode === "default"} onChange={() => setDatapackMode("default")} disabled={datapackSaving} />
-                  <span><strong>Soccerverse standard</strong><small>Keep the current Spotlight shields.</small></span>
+                  <span><strong>{t("Soccerverse standard")}</strong><small>{t("Use the initial-based Spotlight shields.")}</small></span>
                 </label>
                 <label className={datapackMode === "community" ? "datapack-option active" : "datapack-option"}>
                   <input type="radio" name="datapack-mode" value="community" checked={datapackMode === "community"} onChange={() => setDatapackMode("community")} disabled={datapackSaving} />
-                  <span><strong>Community pack</strong><small>Show real club crests from El Rincón.</small></span>
+                  <span><strong>{t("Community pack")}</strong><small>{t("Show real club crests from El Rincón.")}</small></span>
                 </label>
               </div>
             </fieldset>
             <div className="datapack-save-row">
-              <small>Only the two crest images for the current match are requested. The full datapack is never downloaded.</small>
-              <button type="submit" disabled={datapackSaving}>{datapackSaving ? "Saving..." : "Save display source"}</button>
+              <small>{t("The selected source applies to the weekly Spotlight on this account.")}</small>
+              <button type="submit" disabled={datapackSaving}>{datapackSaving ? "…" : t("Save display source")}</button>
             </div>
             {datapackNotice && <span className="profile-form-notice success" role="status">{datapackNotice}</span>}
             {datapackError && <span className="profile-form-notice error" role="alert">{datapackError}</span>}
           </form>
         </div>
       </section>
-      <div className="profile-stats"><div><strong>{stats.points}</strong><span>Season points</span></div><div><strong>{stats.exactScores}</strong><span>Exact scores</span></div><div><strong>{stats.accuracy}%</strong><span>Result accuracy</span></div><div><strong>{stats.countries}</strong><span>Countries explored</span></div></div>
-      <div className="history-panel"><div className="history-heading"><h2>Prediction history</h2><span>{loading ? "Loading" : `${stats.predictions} prediction${stats.predictions === 1 ? "" : "s"}`}</span></div>{viewer?.history.map((item) => <article key={item.matchId}><span>{formatShortDate(item.kickoff * 1000)}</span><div className="history-match"><strong>{item.homeName} {item.result ? `${item.result.homeScore}-${item.result.awayScore}` : "vs"} {item.awayName}</strong><small>Your pick: {item.prediction.homeScore}-{item.prediction.awayScore} · {item.competitionName}</small>{item.score && <div className="history-breakdown">{historyBreakdown(item.score).map(([label, points]) => <i className={points ? "hit" : ""} key={label}>{label} +{points}</i>)}</div>}</div><small>{item.score ? "Settled" : item.result ? "Scoring" : "Pending result"}</small><b>{item.score ? `+${item.score.totalPoints}` : "-"}</b></article>)}{!loading && !viewer?.history.length && <SeasonEmpty title="No predictions yet" description="Your first locked spotlight will appear here immediately." />}</div>
+      <div className="profile-stats"><div><strong>{stats.points}</strong><span>{t("Season points")}</span></div><div><strong>{stats.exactScores}</strong><span>{t("Exact scores")}</span></div><div><strong>{stats.accuracy}%</strong><span>{t("Result accuracy")}</span></div><div><strong>{stats.countries}</strong><span>{t("Countries explored")}</span></div></div>
+      <div className="history-panel"><div className="history-heading"><h2>{t("Prediction history")}</h2><span>{loading ? t("Loading") : new Intl.NumberFormat(locale).format(stats.predictions)}</span></div>{viewer?.history.map((item) => <article key={item.matchId}><span>{new Intl.DateTimeFormat(locale, { day: "2-digit", month: "short", year: "numeric" }).format(new Date(item.kickoff * 1000))}</span><div className="history-match"><strong>{item.homeName} {item.result ? `${item.result.homeScore}-${item.result.awayScore}` : "vs"} {item.awayName}</strong><small>{item.prediction.homeScore}-{item.prediction.awayScore} · {item.competitionName}</small>{item.score && <div className="history-breakdown">{historyBreakdown(item.score).map(([label, points]) => <i className={points ? "hit" : ""} key={label}>{t(label)} +{points}</i>)}</div>}</div><small>{item.score ? t("Settled") : "..."}</small><b>{item.score ? `+${item.score.totalPoints}` : "-"}</b></article>)}{!loading && !viewer?.history.length && <SeasonEmpty title="-" description={t("Make your prediction")} />}</div>
     </section>
   );
 }
