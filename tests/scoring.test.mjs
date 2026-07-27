@@ -100,3 +100,16 @@ test("requires the first scorer to belong to the selected first team", () => {
     firstScorerClubId: "away",
   }) || "", /selected first team/);
 });
+
+test("rejects a first scorer whose team is predicted not to score", () => {
+  assert.match(validatePredictionConsistency({
+    ...result,
+    homeScore: 0,
+    awayScore: 1,
+    firstTeam: "away",
+  }, {
+    homeClubId: "home",
+    awayClubId: "away",
+    firstScorerClubId: "home",
+  }) || "", /team with at least one predicted goal/);
+});

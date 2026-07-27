@@ -117,6 +117,9 @@ export function validatePredictionConsistency(
     if (!allowedTeams.includes(prediction.firstTeam)) {
       return "The first team to score must have at least one predicted goal";
     }
+    if (context.firstScorerClubId && !allowedTeams.includes(context.firstScorerClubId)) {
+      return "The first goalscorer must play for a team with at least one predicted goal";
+    }
     if (context.firstScorerClubId && context.firstScorerClubId !== prediction.firstTeam) {
       return "The first goalscorer must play for the selected first team";
     }
