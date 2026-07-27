@@ -72,6 +72,19 @@ test("uses a visual Soccerverse player picker", async () => {
   assert.doesNotMatch(app, /<select value=\{prediction\.firstScorer\}/);
 });
 
+test("only offers first goalscorers from teams predicted to score", async () => {
+  const [app, scoring, predictionsRoute] = await Promise.all([
+    readFile(new URL("../app/under-the-lights-app.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../lib/scoring.ts", import.meta.url), "utf8"),
+    readFile(new URL("../app/api/predictions/route.ts", import.meta.url), "utf8"),
+  ]);
+
+  assert.match(app, /\.filter\(\(player\) => allowedClubIds\.includes\(player\.clubId\)\)/);
+  assert.match(app, /if \(!player \|\| !allowedTeams\.includes\(String\(player\.clubId\)\)\) return/);
+  assert.match(scoring, /The first goalscorer must play for a team with at least one predicted goal/);
+  assert.match(predictionsRoute, /firstScorerClubId/);
+});
+
 test("lets administrators validate and synchronize the Soccerverse datapack", async () => {
   const [adminPanel, route, datapack, schema, migration] = await Promise.all([
     readFile(new URL("../app/admin/admin-panel.tsx", import.meta.url), "utf8"),

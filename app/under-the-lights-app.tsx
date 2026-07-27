@@ -876,10 +876,17 @@ function SpotlightView({ spotlight, prediction, setPrediction, submitted, saving
 
   function updateFirstScorer(firstScorer: string) {
     const player = spotlight.players.find((candidate) => String(candidate.id) === firstScorer);
+    const allowedTeams = allowedFirstTeams(
+      prediction.homeScore,
+      prediction.awayScore,
+      String(spotlight.homeClubId),
+      String(spotlight.awayClubId),
+    );
+    if (!player || !allowedTeams.includes(String(player.clubId))) return;
     setPrediction({
       ...prediction,
       firstScorer,
-      firstTeam: player ? String(player.clubId) : prediction.firstTeam,
+      firstTeam: String(player.clubId),
     });
   }
 
