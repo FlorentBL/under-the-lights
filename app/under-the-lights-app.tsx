@@ -9,6 +9,7 @@ import {
   CaretDown,
   ChartBar,
   Check,
+  CheckCircle,
   Clock,
   Crosshair,
   Database,
@@ -40,11 +41,10 @@ import { authClient } from "@/lib/auth-client";
 import { LanguageProvider, languages, type Language, useI18n } from "@/lib/i18n";
 import { positionCategories, positionSummary, primaryPositionCategory, type PositionCategory } from "@/lib/player-positions";
 import { MAX_AVATAR_DATA_URL_LENGTH } from "@/lib/profile-avatar";
-import { GOAL_WINDOWS, MAX_PREDICTION_POINTS, NO_GOAL, type GoalWindow, type ScoreBreakdown } from "@/lib/scoring";
+import { allowedFirstTeams, GOAL_WINDOWS, MAX_PREDICTION_POINTS, NO_GOAL, type GoalWindow, type ScoreBreakdown } from "@/lib/scoring";
 import type { PredictionTrends } from "@/lib/prediction-trends";
 import type { BadgeKey, SeasonPayload, SeasonViewer } from "@/lib/season";
 import { soccerverseProfileUrl } from "@/lib/soccerverse-profile";
-import type { DatapackMode } from "@/lib/datapack";
 
 type View = "spotlight" | "how-it-works" | "leaderboard" | "achievements" | "project" | "profile";
 type AuthIntent = "sign-in" | "reset-password" | "verified" | "verification-error" | "reset-error";
@@ -75,12 +75,14 @@ type Spotlight = {
   kickoff: number;
   homeClubId: number;
   awayClubId: number;
-  homeCommunityLogoUrl: string | null;
-  awayCommunityLogoUrl: string | null;
   countryCode: string;
   competitionName: string;
   homeName: string;
   awayName: string;
+  homeLogoUrl: string | null;
+  awayLogoUrl: string | null;
+  homeColor: string | null;
+  awayColor: string | null;
   homePosition: number | null;
   awayPosition: number | null;
   homePoints: number | null;
@@ -113,12 +115,14 @@ const fallbackSpotlight: Spotlight = {
   kickoff: 1785004200,
   homeClubId: 0,
   awayClubId: 0,
-  homeCommunityLogoUrl: null,
-  awayCommunityLogoUrl: null,
   countryCode: "POL",
   competitionName: "I Liga",
   homeName: "Wisła Kraków",
   awayName: "Arka Gdynia",
+  homeLogoUrl: null,
+  awayLogoUrl: null,
+  homeColor: null,
+  awayColor: null,
   homePosition: 2,
   awayPosition: 1,
   homePoints: null,
@@ -165,6 +169,37 @@ function readPendingPrediction(fixtureId: number) {
     window.localStorage.removeItem(key);
     return null;
   }
+}
+
+function coherentPrediction(prediction: Prediction, spotlight: Spotlight): Prediction {
+  if (prediction.homeScore + prediction.awayScore === 0) {
+    return {
+      ...prediction,
+      firstScorer: NO_GOAL,
+      goalWindow: NO_GOAL,
+      firstTeam: NO_GOAL,
+    };
+  }
+
+  const allowedTeams = allowedFirstTeams(
+    prediction.homeScore,
+    prediction.awayScore,
+    String(spotlight.homeClubId),
+    String(spotlight.awayClubId),
+  );
+  const selectedScorer = spotlight.players.find((player) => String(player.id) === prediction.firstScorer);
+  const scorerTeam = selectedScorer ? String(selectedScorer.clubId) : null;
+  const scorerIsPossible = scorerTeam !== null && allowedTeams.includes(scorerTeam);
+  return {
+    ...prediction,
+    firstScorer: scorerIsPossible ? prediction.firstScorer : "",
+    goalWindow: prediction.goalWindow === NO_GOAL ? "1-15" : prediction.goalWindow,
+    firstTeam: scorerIsPossible
+      ? scorerTeam
+      : allowedTeams.includes(prediction.firstTeam)
+        ? prediction.firstTeam
+        : allowedTeams[0],
+  };
 }
 
 export function UnderTheLightsApp() {
@@ -296,7 +331,7 @@ function UnderTheLightsContent() {
   }, [refreshPredictionTrends]);
 
   useEffect(() => {
-    fetch("/api/spotlight/current")
+    fetch("/api/spotlight/current", { cache: "no-store" })
       .then(async (response) => await response.json() as { spotlight?: Spotlight | null })
       .then((payload) => {
         if (!payload.spotlight) {
@@ -317,6 +352,35 @@ function UnderTheLightsContent() {
       })
       .catch(() => setTrendsLoading(false));
   }, []);
+
+  useEffect(() => {
+    if (!spotlight.fixtureId || spotlight.result) return;
+    let interval: number | null = null;
+    let active = true;
+    const refreshResult = () => {
+      void fetch("/api/spotlight/current", { cache: "no-store" })
+        .then(async (response) => await response.json() as { spotlight?: Spotlight | null })
+        .then((payload) => {
+          if (active && payload.spotlight?.fixtureId === spotlight.fixtureId) setSpotlight(payload.spotlight);
+        })
+        .catch(() => undefined);
+    };
+    const beginPolling = () => {
+      refreshResult();
+      interval = window.setInterval(refreshResult, 15_000);
+    };
+    const delay = Math.max(0, spotlight.kickoff * 1000 - Date.now());
+    const timeout = window.setTimeout(beginPolling, delay);
+    return () => {
+      active = false;
+      window.clearTimeout(timeout);
+      if (interval !== null) window.clearInterval(interval);
+    };
+  }, [spotlight.fixtureId, spotlight.kickoff, spotlight.result]);
+
+  useEffect(() => {
+    if (spotlight.result?.settledAt) void refreshSeason();
+  }, [refreshSeason, spotlight.result?.settledAt]);
 
   useEffect(() => {
     if (sessionPending || !spotlight.fixtureId) return;
@@ -353,7 +417,7 @@ function UnderTheLightsContent() {
       })
       .catch(() => undefined);
     return () => controller.abort();
-  }, [savePrediction, session, sessionPending, spotlight.fixtureId]);
+  }, [savePrediction, session, sessionPending, spotlight.fixtureId, spotlight.result?.settledAt]);
 
   const navigate = (next: View) => {
     setView(next);
@@ -422,7 +486,6 @@ function UnderTheLightsContent() {
         {view === "spotlight" && (
           <SpotlightView
             spotlight={spotlight}
-            datapackMode={season.viewer?.datapackMode || "default"}
             prediction={prediction}
             setPrediction={setPrediction}
             submitted={submitted}
@@ -432,9 +495,11 @@ function UnderTheLightsContent() {
             trends={predictionTrends}
             trendsLoading={trendsLoading}
             leaders={season.leaderboard}
+            viewer={season.viewer}
             projectedPoints={MAX_PREDICTION_POINTS}
             onSubmit={submitPrediction}
             onLeaderboard={() => navigate("leaderboard")}
+            onAchievements={() => navigate("achievements")}
           />
         )}
         {view === "how-it-works" && <HowItWorksView spotlight={spotlight} onPlay={() => navigate("spotlight")} />}
@@ -758,9 +823,8 @@ function NavButton({ active, onClick, children }: { active: boolean; onClick: ()
   return <button className={active ? "nav-button active" : "nav-button"} onClick={onClick}>{children}</button>;
 }
 
-function SpotlightView({ spotlight, datapackMode, prediction, setPrediction, submitted, saving, notice, score, trends, trendsLoading, leaders, projectedPoints, onSubmit, onLeaderboard }: {
+function SpotlightView({ spotlight, prediction, setPrediction, submitted, saving, notice, score, trends, trendsLoading, leaders, viewer, projectedPoints, onSubmit, onLeaderboard, onAchievements }: {
   spotlight: Spotlight;
-  datapackMode: DatapackMode;
   prediction: Prediction;
   setPrediction: (prediction: Prediction) => void;
   submitted: boolean;
@@ -770,9 +834,11 @@ function SpotlightView({ spotlight, datapackMode, prediction, setPrediction, sub
   trends: PredictionTrends | null;
   trendsLoading: boolean;
   leaders: SeasonPayload["leaderboard"];
+  viewer: SeasonViewer | null;
   projectedPoints: number;
   onSubmit: (event: FormEvent) => void;
   onLeaderboard: () => void;
+  onAchievements: () => void;
 }) {
   const { t, locale } = useI18n();
   const heroRef = useRef<HTMLElement>(null);
@@ -795,18 +861,35 @@ function SpotlightView({ spotlight, datapackMode, prediction, setPrediction, sub
     };
   }, []);
 
-  function updateScore(field: "homeScore" | "awayScore", value: number) {
-    const next = { ...prediction, [field]: value };
-    if (next.homeScore + next.awayScore === 0) {
-      next.firstScorer = NO_GOAL;
-      next.goalWindow = NO_GOAL;
-      next.firstTeam = NO_GOAL;
-    } else {
-      if (next.firstScorer === NO_GOAL) next.firstScorer = "";
-      if (next.goalWindow === NO_GOAL) next.goalWindow = "1-15";
-      if (next.firstTeam === NO_GOAL) next.firstTeam = String(spotlight.homeClubId);
+  useEffect(() => {
+    const next = coherentPrediction(prediction, spotlight);
+    if (next.firstScorer !== prediction.firstScorer
+      || next.goalWindow !== prediction.goalWindow
+      || next.firstTeam !== prediction.firstTeam) {
+      setPrediction(next);
     }
-    setPrediction(next);
+  }, [prediction, setPrediction, spotlight]);
+
+  function updateScore(field: "homeScore" | "awayScore", value: number) {
+    setPrediction(coherentPrediction({ ...prediction, [field]: value }, spotlight));
+  }
+
+  function updateFirstScorer(firstScorer: string) {
+    const player = spotlight.players.find((candidate) => String(candidate.id) === firstScorer);
+    setPrediction({
+      ...prediction,
+      firstScorer,
+      firstTeam: player ? String(player.clubId) : prediction.firstTeam,
+    });
+  }
+
+  function updateFirstTeam(firstTeam: string) {
+    const selected = spotlight.players.find((player) => String(player.id) === prediction.firstScorer);
+    setPrediction({
+      ...prediction,
+      firstTeam,
+      firstScorer: selected && String(selected.clubId) !== firstTeam ? "" : prediction.firstScorer,
+    });
   }
 
   function moveHeroLight(event: React.PointerEvent<HTMLElement>) {
@@ -826,7 +909,7 @@ function SpotlightView({ spotlight, datapackMode, prediction, setPrediction, sub
           <div className="eyebrow"><GlobeHemisphereWest size={16} weight="bold" /> {t("This week in {country}", { country: spotlight.countryCode })}</div>
           <h1>{t("One match.")}<br /><em>{t("All eyes.")}</em></h1>
           <p>{t("Discover the games that matter, wherever football takes you.")}</p>
-          <a href="#prediction" className="primary-cta">{t("Make your prediction")} <ArrowRight size={18} weight="bold" /></a>
+          <a href="#prediction" className="primary-cta">{spotlight.result ? t("View match review") : t("Make your prediction")} <ArrowRight size={18} weight="bold" /></a>
         </div>
 
         <article className="fixture-panel" aria-label={t("Featured match")}>
@@ -835,22 +918,9 @@ function SpotlightView({ spotlight, datapackMode, prediction, setPrediction, sub
             <time>{kickoff}</time>
           </div>
           <div className="teams">
-            <TeamMark
-              initials={initials(spotlight.homeName)}
-              name={spotlight.homeName}
-              position={spotlight.homePosition}
-              competition={spotlight.competitionName}
-              logoUrl={datapackMode === "community" ? spotlight.homeCommunityLogoUrl : null}
-              home
-            />
+            <TeamMark initials={initials(spotlight.homeName)} name={spotlight.homeName} logoUrl={viewer?.datapackMode === "default" ? null : spotlight.homeLogoUrl} color={viewer?.datapackMode === "default" ? null : spotlight.homeColor} position={spotlight.homePosition} competition={spotlight.competitionName} home />
             <div className="versus"><span>VS</span><small>{spotlightReason}</small></div>
-            <TeamMark
-              initials={initials(spotlight.awayName)}
-              name={spotlight.awayName}
-              position={spotlight.awayPosition}
-              competition={spotlight.competitionName}
-              logoUrl={datapackMode === "community" ? spotlight.awayCommunityLogoUrl : null}
-            />
+            <TeamMark initials={initials(spotlight.awayName)} name={spotlight.awayName} logoUrl={viewer?.datapackMode === "default" ? null : spotlight.awayLogoUrl} color={viewer?.datapackMode === "default" ? null : spotlight.awayColor} position={spotlight.awayPosition} competition={spotlight.competitionName} />
           </div>
           <div className="fixture-story"><strong>{spotlight.title}</strong><p>{spotlight.summary}</p></div>
           <SoccerverseLinks spotlight={spotlight} />
@@ -864,7 +934,16 @@ function SpotlightView({ spotlight, datapackMode, prediction, setPrediction, sub
         <div><strong>{spotlight.homeRecord || "-"}</strong><span>{t("{team} record", { team: spotlight.homeName })}</span></div>
       </section>
 
-      <section className="prediction-section" id="prediction">
+      {spotlight.result && score ? (
+        <PostMatchRecap
+          spotlight={spotlight}
+          prediction={prediction}
+          score={score}
+          viewer={viewer}
+          onLeaderboard={onLeaderboard}
+          onAchievements={onAchievements}
+        />
+      ) : <section className="prediction-section" id="prediction">
         <div className="section-heading"><span>{t("Your call")}</span><h2>{t("Read the game.")}<br />{t("Own the moment.")}</h2><p>{t("Every correct detail adds points. Precision unlocks the rarest achievements.")}</p></div>
         <form className="prediction-grid" onSubmit={onSubmit}>
           <div className="prediction-main">
@@ -880,19 +959,20 @@ function SpotlightView({ spotlight, datapackMode, prediction, setPrediction, sub
               players={spotlight.players}
               homeClubId={spotlight.homeClubId}
               awayClubId={spotlight.awayClubId}
+              allowedClubIds={allowedFirstTeams(prediction.homeScore, prediction.awayScore, String(spotlight.homeClubId), String(spotlight.awayClubId)).filter((clubId) => clubId !== NO_GOAL).map(Number)}
               homeName={spotlight.homeName}
               awayName={spotlight.awayName}
               value={prediction.firstScorer}
               disabled={predictionsClosed || !spotlight.players.length || prediction.homeScore + prediction.awayScore === 0}
               loading={!spotlight.players.length}
-              onChange={(firstScorer) => setPrediction({ ...prediction, firstScorer })}
+              onChange={updateFirstScorer}
             />
-            <fieldset className="field-block"><legend>{t("First goal window")}</legend><div className="choice-row">{GOAL_WINDOWS.map((window) => <button type="button" key={window} disabled={predictionsClosed} className={prediction.goalWindow === window ? "choice active" : "choice"} onClick={() => setPrediction({ ...prediction, goalWindow: window })}>{window === NO_GOAL ? t("No goal") : window}</button>)}</div></fieldset>
+            <fieldset className="field-block"><legend>{t("First goal window")}</legend><div className="choice-row">{GOAL_WINDOWS.map((window) => <button type="button" key={window} disabled={predictionsClosed || (prediction.homeScore + prediction.awayScore === 0 ? window !== NO_GOAL : window === NO_GOAL)} className={prediction.goalWindow === window ? "choice active" : "choice"} onClick={() => setPrediction({ ...prediction, goalWindow: window })}>{window === NO_GOAL ? t("No goal") : window}</button>)}</div></fieldset>
             <fieldset className="field-block"><legend>{t("Who scores first?")}</legend><div className="choice-row three">{spotlight.fixtureId > 0 && [
               { key: "home", value: String(spotlight.homeClubId), label: spotlight.homeName },
               { key: "away", value: String(spotlight.awayClubId), label: spotlight.awayName },
               { key: "no-goal", value: NO_GOAL, label: t("No goal") },
-            ].map((team) => <button type="button" key={team.key} disabled={predictionsClosed} className={prediction.firstTeam === team.value ? "choice active" : "choice"} onClick={() => setPrediction({ ...prediction, firstTeam: team.value })}>{team.label}</button>)}</div></fieldset>
+            ].map((team) => <button type="button" key={team.key} disabled={predictionsClosed || !allowedFirstTeams(prediction.homeScore, prediction.awayScore, String(spotlight.homeClubId), String(spotlight.awayClubId)).includes(team.value)} className={prediction.firstTeam === team.value ? "choice active" : "choice"} onClick={() => updateFirstTeam(team.value)}>{team.label}</button>)}</div></fieldset>
           </div>
 
           <aside className="prediction-summary">
@@ -905,13 +985,125 @@ function SpotlightView({ spotlight, datapackMode, prediction, setPrediction, sub
           </aside>
         </form>
         <CommunityTrends trends={trends} loading={trendsLoading} homeName={spotlight.homeName} awayName={spotlight.awayName} />
-      </section>
+      </section>}
 
       <section className="week-leaders">
         <div className="leaders-copy"><span>{t("Season table")}</span><h2>{t("The season never stops.")}</h2><p>{t("Weekly precision builds a reputation across every league.")}</p><button className="text-link" onClick={onLeaderboard}>{t("View full leaderboard")} <ArrowRight size={18} /></button></div>
         <div className="leader-podium">{leaders.length ? leaders.slice(0, 3).map((entry) => <div key={entry.participantId} className="mini-rank"><span>{String(entry.rank).padStart(2, "0")}</span><div><CompetitorAvatar name={entry.displayName} avatarUrl={entry.avatarUrl} className="mini-player-avatar" /><a className="public-player-link" href={`/players/${encodeURIComponent(entry.participantId)}`}>{entry.displayName}</a><small>{t("{played} played · {exact} exact", { played: entry.played, exact: entry.exactScores })}</small>{entry.soccerverseUsername && <SoccerverseAccountLink username={entry.soccerverseUsername} compact />}</div><b>{entry.points}<small> pts</small></b></div>) : <SeasonEmpty compact title={t("The table is waiting")} description={t("The first settled spotlight will reveal the opening standings.")} />}</div>
       </section>
     </>
+  );
+}
+
+function PostMatchRecap({ spotlight, prediction, score, viewer, onLeaderboard, onAchievements }: {
+  spotlight: Spotlight;
+  prediction: Prediction;
+  score: PredictionScore;
+  viewer: SeasonViewer | null;
+  onLeaderboard: () => void;
+  onAchievements: () => void;
+}) {
+  const { t } = useI18n();
+  const result = spotlight.result;
+  if (!result) return null;
+  const playerName = (playerId: string) => spotlight.players.find((player) => String(player.id) === playerId)?.name
+    || (playerId === NO_GOAL ? t("No goal") : t("Pending confirmation"));
+  const teamName = (clubId: string) => clubId === String(spotlight.homeClubId)
+    ? spotlight.homeName
+    : clubId === String(spotlight.awayClubId)
+      ? spotlight.awayName
+      : t("No goal");
+  const newlyUnlocked = (viewer?.badges || []).filter((badge) =>
+    badge.unlocked && badge.earnedAt !== null && Math.abs(badge.earnedAt - score.scoredAt) < 2_000);
+  const breakdown = [
+    {
+      label: t("Match outcome"),
+      points: score.outcomePoints,
+      prediction: `${prediction.homeScore} - ${prediction.awayScore}`,
+      result: `${result.homeScore} - ${result.awayScore}`,
+    },
+    {
+      label: t("Exact score"),
+      points: score.exactScorePoints,
+      prediction: `${prediction.homeScore} - ${prediction.awayScore}`,
+      result: `${result.homeScore} - ${result.awayScore}`,
+    },
+    {
+      label: t("First scorer"),
+      points: score.firstScorerPoints,
+      prediction: playerName(prediction.firstScorer),
+      result: playerName(result.firstScorer),
+    },
+    {
+      label: t("Goal window"),
+      points: score.goalWindowPoints,
+      prediction: prediction.goalWindow === NO_GOAL ? t("No goal") : prediction.goalWindow,
+      result: result.goalWindow === NO_GOAL ? t("No goal") : result.goalWindow,
+    },
+    {
+      label: t("First team"),
+      points: score.firstTeamPoints,
+      prediction: teamName(prediction.firstTeam),
+      result: teamName(result.firstTeam),
+    },
+  ];
+
+  return (
+    <section className="post-match-recap" id="prediction" aria-labelledby="post-match-title">
+      <header className="post-match-heading">
+        <div>
+          <span><CheckCircle size={18} weight="fill" /> {t("Your match review")}</span>
+          <h2 id="post-match-title">{t("The final whistle.")}</h2>
+          <p>{t("Your prediction has been scored across all five categories.")}</p>
+        </div>
+        <div className="post-match-total"><span>{t("Points awarded")}</span><strong>+{score.totalPoints}</strong><small>{t("out of 15")}</small></div>
+      </header>
+
+      <div className="post-match-scoreline">
+        <div><span>{t("Your prediction")}</span><strong>{prediction.homeScore} - {prediction.awayScore}</strong><small>{spotlight.homeName} / {spotlight.awayName}</small></div>
+        <div className={prediction.homeScore === result.homeScore && prediction.awayScore === result.awayScore ? "recap-verdict hit" : "recap-verdict"}>
+          {prediction.homeScore === result.homeScore && prediction.awayScore === result.awayScore
+            ? <Check size={20} weight="bold" />
+            : <Crosshair size={20} />}
+          <span>{prediction.homeScore === result.homeScore && prediction.awayScore === result.awayScore ? t("Exact call") : t("Final result")}</span>
+        </div>
+        <div><span>{t("Final result")}</span><strong>{result.homeScore} - {result.awayScore}</strong><small>{playerName(result.firstScorer)}{result.firstGoalMinute ? `, ${result.firstGoalMinute}'` : ""}</small></div>
+      </div>
+
+      <div className="post-match-body">
+        <div className="post-match-breakdown">
+          <h3>{t("Points breakdown")}</h3>
+          {breakdown.map((item) => (
+            <article className={item.points ? "hit" : "miss"} key={item.label}>
+              <span>{item.points ? <Check size={17} weight="bold" /> : <X size={16} />}</span>
+              <div><strong>{item.label}</strong><small>{item.prediction} <i>/</i> {item.result}</small></div>
+              <b>+{item.points}</b>
+            </article>
+          ))}
+        </div>
+
+        <aside className="post-match-season">
+          <div className="season-impact">
+            <span>{t("Season impact")}</span>
+            <div><strong>{viewer?.rank ? `#${viewer.rank}` : "-"}</strong><small>{t("Current rank")}</small></div>
+            <div><strong>{viewer?.stats.points ?? score.totalPoints}</strong><small>{t("Season points")}</small></div>
+          </div>
+
+          <div className="recap-badges">
+            <span>{t("New achievements")}</span>
+            {newlyUnlocked.length ? newlyUnlocked.map((badge) => {
+              const Icon = badgeIcons[badge.key];
+              return <div key={badge.key}><Icon size={25} weight="fill" /><span><strong>{t(badge.name)}</strong><small>{t(badge.description)}</small></span></div>;
+            }) : <p><Medal size={22} weight="duotone" /> {t("No new badge this week.")}</p>}
+          </div>
+
+          <div className="recap-actions">
+            <button type="button" onClick={onLeaderboard}>{t("View full leaderboard")}<ArrowRight size={17} /></button>
+            <button type="button" className="secondary" onClick={onAchievements}>{t("View achievements")}<Medal size={17} /></button>
+          </div>
+        </aside>
+      </div>
+    </section>
   );
 }
 
@@ -1000,29 +1192,20 @@ function ScoreBreakdown({ score }: { score: PredictionScore }) {
   return <div className="scoring-key awarded" aria-label={t("Points breakdown")}>{items.map(([label, points]) => <span className={points ? "hit" : "miss"} key={label}>{label} <b>+{points}</b></span>)}</div>;
 }
 
-function TeamMark({ initials: mark, name, position, competition, logoUrl, home = false }: {
+function TeamMark({ initials: mark, name, logoUrl, color, position, competition, home = false }: {
   initials: string;
   name: string;
+  logoUrl: string | null;
+  color: string | null;
   position: number | null;
   competition: string;
-  logoUrl: string | null;
   home?: boolean;
 }) {
   const { t } = useI18n();
-  const [failedLogoUrl, setFailedLogoUrl] = useState<string | null>(null);
-  const showCommunityLogo = Boolean(logoUrl && logoUrl !== failedLogoUrl);
-
-  return (
-    <div className="team-mark">
-      <div className={`team-badge${home ? " home" : ""}${showCommunityLogo ? " community" : ""}`}>
-        {showCommunityLogo
-          ? <Image className="team-community-logo" src={logoUrl!} alt="" width={88} height={96} referrerPolicy="no-referrer" onError={() => setFailedLogoUrl(logoUrl)} />
-          : mark}
-      </div>
-      <strong>{name}</strong>
-      <span>{t("{position} in {competition}", { position: position ? `#${position}` : t("Unranked"), competition })}</span>
-    </div>
-  );
+  const background = color
+    ? `linear-gradient(135deg, rgba(255,255,255,.2), transparent 38%), ${color}`
+    : undefined;
+  return <div className="team-mark"><div className={home ? "team-badge home" : "team-badge"} style={{ background }}><span>{mark}</span>{logoUrl && <Image src={logoUrl} alt={`${name} logo`} width={76} height={76} onError={(event) => { event.currentTarget.style.display = "none"; }} />}</div><strong>{name}</strong><span>{t("{position} in {competition}", { position: position ? `#${position}` : t("Unranked"), competition })}</span></div>;
 }
 
 function SoccerverseLinks({ spotlight }: { spotlight: Spotlight }) {
@@ -1048,10 +1231,11 @@ function ScoreControl({ label, value, disabled, onChange }: { label: string; val
   return <div className="score-control"><span>{label}</span><div><button type="button" disabled={disabled} onClick={() => onChange(Math.max(0, value - 1))} aria-label={t("Decrease {team} score", { team: label })}>−</button><strong>{value}</strong><button type="button" disabled={disabled} onClick={() => onChange(Math.min(9, value + 1))} aria-label={t("Increase {team} score", { team: label })}>+</button></div></div>;
 }
 
-function PlayerPicker({ players, homeClubId, awayClubId, homeName, awayName, value, disabled, loading, onChange }: {
+function PlayerPicker({ players, homeClubId, awayClubId, allowedClubIds, homeName, awayName, value, disabled, loading, onChange }: {
   players: SpotlightPlayer[];
   homeClubId: number;
   awayClubId: number;
+  allowedClubIds: number[];
   homeName: string;
   awayName: string;
   value: string;
@@ -1067,10 +1251,15 @@ function PlayerPicker({ players, homeClubId, awayClubId, homeName, awayName, val
   const pickerRef = useRef<HTMLDivElement>(null);
   const selected = players.find((player) => String(player.id) === value);
   const normalizedQuery = query.trim().toLocaleLowerCase();
+  const effectiveTeam = (team === "home" && !allowedClubIds.includes(homeClubId))
+    || (team === "away" && !allowedClubIds.includes(awayClubId))
+    ? "all"
+    : team;
   const visiblePlayers = players
-    .filter((player) => team === "all"
-      || (team === "home" && player.clubId === homeClubId)
-      || (team === "away" && player.clubId === awayClubId))
+    .filter((player) => allowedClubIds.includes(player.clubId))
+    .filter((player) => effectiveTeam === "all"
+      || (effectiveTeam === "home" && player.clubId === homeClubId)
+      || (effectiveTeam === "away" && player.clubId === awayClubId))
     .filter((player) => positionCategory === "all" || positionCategories(player.position).includes(positionCategory))
     .filter((player) => !normalizedQuery
       || player.name.toLocaleLowerCase().includes(normalizedQuery)
@@ -1130,7 +1319,11 @@ function PlayerPicker({ players, homeClubId, awayClubId, homeName, awayName, val
               { value: "all", label: t("All players") },
               { value: "home", label: homeName },
               { value: "away", label: awayName },
-            ].map((option) => <button type="button" key={option.value} className={team === option.value ? "active" : ""} onClick={() => setTeam(option.value as "all" | "home" | "away")}>{option.label}</button>)}
+            ].map((option) => {
+              const unavailable = (option.value === "home" && !allowedClubIds.includes(homeClubId))
+                || (option.value === "away" && !allowedClubIds.includes(awayClubId));
+              return <button type="button" key={option.value} disabled={unavailable} className={effectiveTeam === option.value ? "active" : ""} onClick={() => setTeam(option.value as "all" | "home" | "away")}>{option.label}</button>;
+            })}
           </div>
           <div className="player-position-filter" aria-label={t("Filter players by position")}>
             {[
@@ -1326,7 +1519,7 @@ function ProfileView({ user, viewer, loading, onAchievements, onProfileUpdated, 
   const [profileSaving, setProfileSaving] = useState(false);
   const [profileNotice, setProfileNotice] = useState("");
   const [profileError, setProfileError] = useState("");
-  const [datapackMode, setDatapackMode] = useState<DatapackMode>(viewer?.datapackMode || "default");
+  const [datapackMode, setDatapackMode] = useState<"default" | "community">(viewer?.datapackMode || "community");
   const [datapackSaving, setDatapackSaving] = useState(false);
   const [datapackNotice, setDatapackNotice] = useState("");
   const [datapackError, setDatapackError] = useState("");
@@ -1415,13 +1608,13 @@ function ProfileView({ user, viewer, loading, onAchievements, onProfileUpdated, 
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ datapackMode }),
       });
-      const payload = await response.json() as { datapackMode?: DatapackMode; error?: string };
+      const payload = await response.json() as { datapackMode?: "default" | "community"; error?: string };
       if (!response.ok) throw new Error(payload.error || t("Datapack source could not be saved"));
-      const savedMode = payload.datapackMode || "default";
+      const savedMode = payload.datapackMode || "community";
       setDatapackMode(savedMode);
       setDatapackNotice(savedMode === "community"
-        ? t("Community club crests are now active for the Spotlight.")
-        : t("Soccerverse standard crests are now active."));
+        ? t("Community club crests are now active.")
+        : t("Soccerverse standard shields are now active."));
       await onProfileUpdated();
     } catch (error) {
       setDatapackError(error instanceof Error ? error.message : t("Datapack source could not be saved"));
@@ -1443,7 +1636,7 @@ function ProfileView({ user, viewer, loading, onAchievements, onProfileUpdated, 
           {avatarNotice && <small className="profile-photo-notice success" role="status">{avatarNotice}</small>}
           {avatarError && <small className="profile-photo-notice error" role="alert">{avatarError}</small>}
         </div>
-        <div><span>{viewer?.rank ? t("Season rank #{rank}", { rank: viewer.rank }) : t("Season 1 competitor")}</span><h1>{user.name}</h1><p>{user.email}</p>{savedSoccerverseUsername && <SoccerverseAccountLink username={savedSoccerverseUsername} />}</div>
+        <div className="profile-identity"><span>{viewer?.rank ? t("Season rank #{rank}", { rank: viewer.rank }) : t("Season 1 competitor")}</span><h1>{user.name}</h1><p>{user.email}</p>{savedSoccerverseUsername && <SoccerverseAccountLink username={savedSoccerverseUsername} />}</div>
         <div className="profile-actions">{viewer?.participantId && <a href={`/players/${encodeURIComponent(viewer.participantId)}`}>{t("View public profile")} <ArrowSquareOut size={18} /></a>}<button onClick={onAchievements}>{t("View achievements")} <ArrowRight size={18} /></button><button className="sign-out-button" onClick={() => authClient.signOut()}><SignOut size={18} /> {t("Sign out")}</button></div>
       </div>
       <section className="profile-connection" aria-labelledby="soccerverse-account-title">
@@ -1466,7 +1659,7 @@ function ProfileView({ user, viewer, loading, onAchievements, onProfileUpdated, 
               <div className="datapack-options">
                 <label className={datapackMode === "default" ? "datapack-option active" : "datapack-option"}>
                   <input type="radio" name="datapack-mode" value="default" checked={datapackMode === "default"} onChange={() => setDatapackMode("default")} disabled={datapackSaving} />
-                  <span><strong>{t("Soccerverse standard")}</strong><small>{t("Keep the current Spotlight shields.")}</small></span>
+                  <span><strong>{t("Soccerverse standard")}</strong><small>{t("Use the initial-based Spotlight shields.")}</small></span>
                 </label>
                 <label className={datapackMode === "community" ? "datapack-option active" : "datapack-option"}>
                   <input type="radio" name="datapack-mode" value="community" checked={datapackMode === "community"} onChange={() => setDatapackMode("community")} disabled={datapackSaving} />
@@ -1475,7 +1668,7 @@ function ProfileView({ user, viewer, loading, onAchievements, onProfileUpdated, 
               </div>
             </fieldset>
             <div className="datapack-save-row">
-              <small>{t("Only the two crest images for the current match are requested. The full datapack is never downloaded.")}</small>
+              <small>{t("The selected source applies to the weekly Spotlight on this account.")}</small>
               <button type="submit" disabled={datapackSaving}>{datapackSaving ? "…" : t("Save display source")}</button>
             </div>
             {datapackNotice && <span className="profile-form-notice success" role="status">{datapackNotice}</span>}

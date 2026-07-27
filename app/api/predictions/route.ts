@@ -84,10 +84,12 @@ export async function POST(request: Request) {
   }
   const allowedTeams = [String(match.home_club_id), String(match.away_club_id), NO_GOAL];
   if (!allowedTeams.includes(firstTeam)) return NextResponse.json({ error: "Invalid first team" }, { status: 400 });
+  let firstScorerClubId: string | null = null;
   if (firstScorer !== NO_GOAL) {
-    const player = await db.prepare("SELECT 1 FROM spotlight_players WHERE match_id = ? AND CAST(player_id AS TEXT) = ?")
-      .bind(matchId, firstScorer).first();
+    const player = await db.prepare("SELECT club_id FROM spotlight_players WHERE match_id = ? AND CAST(player_id AS TEXT) = ?")
+      .bind(matchId, firstScorer).first<{ club_id: number }>();
     if (!player) return NextResponse.json({ error: "Select a player from the published squads" }, { status: 400 });
+    firstScorerClubId = String(player.club_id);
   }
   const consistencyError = validatePredictionConsistency({
     homeScore,
@@ -95,6 +97,10 @@ export async function POST(request: Request) {
     firstScorer,
     goalWindow: goalWindow as GoalWindow,
     firstTeam,
+  }, {
+    homeClubId: String(match.home_club_id),
+    awayClubId: String(match.away_club_id),
+    firstScorerClubId,
   });
   if (consistencyError) return NextResponse.json({ error: consistencyError }, { status: 400 });
   const participantId = session.user.id;

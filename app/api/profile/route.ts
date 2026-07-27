@@ -1,10 +1,10 @@
 import { NextResponse } from "next/server";
 import { env } from "cloudflare:workers";
 import { auth } from "@/lib/auth";
+import { normalizeDatapackMode, parseDatapackMode, type DatapackMode } from "@/lib/datapack";
 import { MAX_AVATAR_DATA_URL_LENGTH, parseAvatarDataUrl, publicAvatarUrl } from "@/lib/profile-avatar";
 import { jsonRequestErrorResponse, readJsonObject } from "@/lib/request-validation";
 import { resolveSoccerverseUsername } from "@/lib/soccerverse-profile";
-import { normalizeDatapackMode, parseDatapackMode, type DatapackMode } from "@/lib/datapack";
 
 type StoredProfile = {
   soccerverse_username: string;
@@ -123,7 +123,7 @@ export async function PUT(request: Request) {
   ).run();
 
   await db.prepare(`DELETE FROM user_profiles
-    WHERE user_id = ? AND soccerverse_username = '' AND avatar_data_url IS NULL AND datapack_mode = 'default'`)
+    WHERE user_id = ? AND soccerverse_username = '' AND avatar_data_url IS NULL AND datapack_mode = 'community'`)
     .bind(user.id)
     .run();
   const saved = await db.prepare(

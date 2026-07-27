@@ -38,6 +38,25 @@ export type ScoreBreakdown = {
   totalPoints: number;
 };
 
+export type PredictionConsistencyContext = {
+  homeClubId: string;
+  awayClubId: string;
+  firstScorerClubId?: string | null;
+};
+
+export function allowedFirstTeams(
+  homeScore: number,
+  awayScore: number,
+  homeClubId: string,
+  awayClubId: string,
+) {
+  if (homeScore + awayScore === 0) return [NO_GOAL];
+  return [
+    ...(homeScore > 0 ? [homeClubId] : []),
+    ...(awayScore > 0 ? [awayClubId] : []),
+  ];
+}
+
 function outcome(homeScore: number, awayScore: number) {
   return Math.sign(homeScore - awayScore);
 }
@@ -73,7 +92,10 @@ export function scorePrediction(prediction: ScorablePrediction, result: MatchRes
   };
 }
 
-export function validatePredictionConsistency(prediction: ScorablePrediction) {
+export function validatePredictionConsistency(
+  prediction: ScorablePrediction,
+  context?: PredictionConsistencyContext,
+) {
   const predictsGoals = prediction.homeScore + prediction.awayScore > 0;
   const noGoalDetails = prediction.firstScorer === NO_GOAL
     && prediction.goalWindow === NO_GOAL
@@ -85,5 +107,19 @@ export function validatePredictionConsistency(prediction: ScorablePrediction) {
     || prediction.goalWindow === NO_GOAL
     || prediction.firstTeam === NO_GOAL
   )) return "A prediction with goals must include a scorer, a goal window and the first team to score";
+  if (predictsGoals && context) {
+    const allowedTeams = allowedFirstTeams(
+      prediction.homeScore,
+      prediction.awayScore,
+      context.homeClubId,
+      context.awayClubId,
+    );
+    if (!allowedTeams.includes(prediction.firstTeam)) {
+      return "The first team to score must have at least one predicted goal";
+    }
+    if (context.firstScorerClubId && context.firstScorerClubId !== prediction.firstTeam) {
+      return "The first goalscorer must play for the selected first team";
+    }
+  }
   return null;
 }

@@ -17,9 +17,12 @@ test("builds only fixed community club crest URLs", () => {
   assert.equal(communityClubLogoUrl("../private"), null);
 });
 
-test("normalizes stored datapack preferences and rejects invalid writes", () => {
+test("normalizes stored datapack preferences while preserving the live community default", () => {
+  assert.equal(normalizeDatapackMode("default"), "default");
   assert.equal(normalizeDatapackMode("community"), "community");
-  assert.equal(normalizeDatapackMode("unexpected"), "default");
+  assert.equal(normalizeDatapackMode("unexpected"), "community");
+  assert.equal(normalizeDatapackMode(null), "community");
   assert.equal(parseDatapackMode("default"), "default");
+  assert.equal(parseDatapackMode("community"), "community");
   assert.throws(() => parseDatapackMode("custom"), /Soccerverse standard or the community pack/);
 });

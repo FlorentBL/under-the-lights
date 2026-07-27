@@ -9,13 +9,16 @@ import {
   CalendarDots,
   CheckCircle,
   Crosshair,
+  Database,
   GlobeHemisphereWest,
   Lightning,
+  LinkSimple,
   LockKey,
   MagnifyingGlass,
   Ranking,
   SoccerBall,
   Sparkle,
+  ShieldCheck,
   UsersThree,
   WarningCircle,
 } from "@phosphor-icons/react";
@@ -72,7 +75,7 @@ type Overview = {
   };
 };
 
-type AdminView = "radar" | "operations" | "users";
+type AdminView = "radar" | "operations" | "users" | "sources";
 
 const storyDirections: { id: EditorialTone; label: string; description: string }[] = [
   { id: "dramatic", label: "Dramatic", description: "Stakes and tension" },
@@ -207,7 +210,9 @@ export function AdminPanel() {
     ? { kicker: "Editorial control room", title: "Choose the match that matters." }
     : adminView === "operations"
       ? { kicker: "Settlement control", title: "Follow the final whistle." }
-      : { kicker: "Community registry", title: "Track every player." };
+      : adminView === "users"
+        ? { kicker: "Community registry", title: "Track every player." }
+        : { kicker: "Data sources", title: "Control the Soccerverse world." };
 
   function chooseCandidate(candidate: Candidate) {
     setSelectedId(candidate.id);
@@ -269,6 +274,7 @@ export function AdminPanel() {
         <button className={adminView === "radar" ? "admin-nav-item active" : "admin-nav-item"} onClick={() => setAdminView("radar")} aria-label="Spotlight radar"><Crosshair size={19} weight="bold" /><span>Spotlight radar</span></button>
         <button className={adminView === "operations" ? "admin-nav-item active" : "admin-nav-item"} onClick={() => setAdminView("operations")} aria-label="Match operations"><Ranking size={19} weight="bold" /><span>Match operations</span></button>
         <button className={adminView === "users" ? "admin-nav-item active" : "admin-nav-item"} onClick={() => setAdminView("users")} aria-label="Participants"><UsersThree size={19} weight="bold" /><span>Participants</span></button>
+        <button className={adminView === "sources" ? "admin-nav-item active" : "admin-nav-item"} onClick={() => setAdminView("sources")} aria-label="Data sources"><Database size={19} weight="bold" /><span>Data sources</span></button>
         <div className="admin-sidebar-foot">
           <span>{initials(data.admin.name)}</span>
           <div><strong>{data.admin.name}</strong><small>Administrator</small></div>
@@ -289,7 +295,7 @@ export function AdminPanel() {
 
         {error && <div className="admin-alert" role="alert"><WarningCircle size={20} /><span>{error}</span></div>}
 
-        {adminView === "users" ? <UsersView /> : adminView === "operations" ? <SettlementView /> : <>
+        {adminView === "users" ? <UsersView /> : adminView === "operations" ? <SettlementView /> : adminView === "sources" ? <DataSourcesView /> : <>
         <section className="admin-metrics" aria-label="Radar summary">
           <Metric icon={CalendarDots} label="Target weekend" value={data.run?.weekKey ? formatWeek(data.run.weekKey) : "Not calculated"} />
           <Metric icon={SoccerBall} label="Fixtures screened" value={String(data.run?.fixturesScanned || 0)} />
@@ -387,6 +393,179 @@ export function AdminPanel() {
   );
 }
 
+type DatapackValidation = {
+  url: string;
+  totalPlayers: number;
+  namedPlayers: number;
+  unnamedPlayers: number;
+  coveragePercent: number;
+  checkedAt: number;
+};
+
+type DatapackPayload = {
+  url: string;
+  defaultUrl: string;
+  updatedAt: number | null;
+  validation: DatapackValidation | null;
+  validationError?: string;
+  currentSpotlight: null | {
+    fixtureId: number;
+    homeName: string;
+    awayName: string;
+    playerCount: number;
+    unnamedPlayers: number;
+  };
+};
+
+function DataSourcesView() {
+  const [data, setData] = useState<DatapackPayload | null>(null);
+  const [url, setUrl] = useState("");
+  const [validation, setValidation] = useState<DatapackValidation | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [validating, setValidating] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState("");
+  const [notice, setNotice] = useState("");
+
+  const load = useCallback(async () => {
+    const response = await fetch("/api/admin/datapack", { cache: "no-store" });
+    const payload = await response.json() as DatapackPayload & { error?: string };
+    if (!response.ok) throw new Error(payload.error || "Datapack settings unavailable");
+    setData(payload);
+    setUrl(payload.url);
+    setValidation(payload.validation);
+    setError(payload.validationError || "");
+  }, []);
+
+  useEffect(() => {
+    let active = true;
+    queueMicrotask(() => {
+      void load()
+        .catch((cause) => active && setError(cause instanceof Error ? cause.message : "Datapack settings unavailable"))
+        .finally(() => active && setLoading(false));
+    });
+    return () => {
+      active = false;
+    };
+  }, [load]);
+
+  async function validate() {
+    setValidating(true);
+    setError("");
+    setNotice("");
+    try {
+      const response = await fetch("/api/admin/datapack", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ url }),
+      });
+      const payload = await response.json() as { validation?: DatapackValidation; error?: string };
+      if (!response.ok || !payload.validation) throw new Error(payload.error || "Datapack validation failed");
+      setValidation(payload.validation);
+      setUrl(payload.validation.url);
+      setNotice("Validation passed. Save to use this datapack.");
+    } catch (cause) {
+      setValidation(null);
+      setError(cause instanceof Error ? cause.message : "Datapack validation failed");
+    } finally {
+      setValidating(false);
+    }
+  }
+
+  async function save() {
+    setSaving(true);
+    setError("");
+    setNotice("");
+    try {
+      const response = await fetch("/api/admin/datapack", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ url }),
+      });
+      const payload = await response.json() as {
+        validation?: DatapackValidation;
+        currentSpotlight?: DatapackPayload["currentSpotlight"];
+        syncError?: string | null;
+        error?: string;
+      };
+      if (!response.ok || !payload.validation) throw new Error(payload.error || "Datapack could not be saved");
+      setValidation(payload.validation);
+      setData((current) => current ? {
+        ...current,
+        url: payload.validation!.url,
+        validation: payload.validation!,
+        updatedAt: Date.now(),
+        currentSpotlight: payload.currentSpotlight || current.currentSpotlight,
+      } : current);
+      setUrl(payload.validation.url);
+      setNotice(payload.syncError
+        ? `Datapack saved. Spotlight sync warning: ${payload.syncError}`
+        : "Datapack saved and the current Spotlight squad was synchronized.");
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "Datapack could not be saved");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  if (loading) return <UsersLoading />;
+
+  const validatedCurrentUrl = Boolean(validation && validation.url === url.trim());
+  const spotlightHealthy = data?.currentSpotlight
+    ? data.currentSpotlight.playerCount > 0 && data.currentSpotlight.unnamedPlayers === 0
+    : null;
+
+  return (
+    <section className="data-source-workspace">
+      <div className="data-source-primary">
+        <div className="data-source-heading">
+          <div className="data-source-icon"><Database size={25} weight="duotone" /></div>
+          <div><h2>Player datapack</h2><p>The selected Soccerverse world supplies every player name used in predictions and results.</p></div>
+        </div>
+
+        <label className="data-source-field">
+          <span>Datapack URL</span>
+          <div><LinkSimple size={18} /><input type="url" value={url} onChange={(event) => { setUrl(event.target.value); setValidation(null); setNotice(""); }} spellCheck={false} /></div>
+          <small>HTTPS JSON file containing PackData.PlayerData.P.</small>
+        </label>
+
+        {error && <div className="data-source-message error" role="alert"><WarningCircle size={18} /><span>{error}</span></div>}
+        {notice && <div className="data-source-message success" role="status"><CheckCircle size={18} weight="fill" /><span>{notice}</span></div>}
+
+        <div className="data-source-actions">
+          <button type="button" className="secondary" onClick={validate} disabled={validating || saving || !url.trim()}>
+            <ShieldCheck size={18} /> {validating ? "Checking file" : "Validate"}
+          </button>
+          <button type="button" onClick={save} disabled={saving || validating || !validatedCurrentUrl}>
+            <Database size={18} weight="fill" /> {saving ? "Saving and syncing" : "Save and sync"}
+          </button>
+        </div>
+      </div>
+
+      <aside className="data-source-health">
+        <header><span>Source health</span><strong>{validation ? "Validated" : "Needs validation"}</strong></header>
+        {validation ? (
+          <div className="source-health-metrics">
+            <div><span>Name coverage</span><strong>{validation.coveragePercent}%</strong></div>
+            <div><span>Named players</span><strong>{validation.namedPlayers.toLocaleString("en-GB")}</strong></div>
+            <div><span>Missing names</span><strong>{validation.unnamedPlayers.toLocaleString("en-GB")}</strong></div>
+            <small>Checked {relativeActivity(validation.checkedAt)}</small>
+          </div>
+        ) : <p>Validate the URL to inspect its player directory before saving it.</p>}
+
+        <div className="spotlight-source-check">
+          <span>Current Spotlight</span>
+          {data?.currentSpotlight ? <>
+            <strong>{data.currentSpotlight.homeName} vs {data.currentSpotlight.awayName}</strong>
+            <small>{data.currentSpotlight.playerCount} players, {data.currentSpotlight.unnamedPlayers} unresolved names</small>
+            <b className={spotlightHealthy ? "healthy" : "warning"}>{spotlightHealthy ? "Ready for predictions" : "Review required"}</b>
+          </> : <p>No Spotlight is currently published.</p>}
+        </div>
+      </aside>
+    </section>
+  );
+}
+
 function SettlementView() {
   const [cockpit, setCockpit] = useState<SettlementCockpit | null>(null);
   const [loading, setLoading] = useState(true);
@@ -454,7 +633,7 @@ function SettlementView() {
           <time>{dateTime.format(new Date(cockpit.kickoff * 1000))}</time>
         </div>
         {cockpit.result ? (
-          <div className="settlement-result"><span>Final result</span><strong>{cockpit.result.homeScore}–{cockpit.result.awayScore}</strong><small>{cockpit.result.firstScorerName || `Player #${cockpit.result.firstScorer}`}{cockpit.result.firstGoalMinute ? ` · ${cockpit.result.firstGoalMinute}'` : " · No goal"}</small></div>
+          <div className="settlement-result"><span>Final result</span><strong>{cockpit.result.homeScore}-{cockpit.result.awayScore}</strong><small>{cockpit.result.firstScorerName || `Player #${cockpit.result.firstScorer}`}{cockpit.result.firstGoalMinute ? ` · ${cockpit.result.firstGoalMinute}'` : " · No goal"}</small></div>
         ) : (
           <div className="settlement-result pending"><ArrowsClockwise size={25} /><span>Automatic checks</span><strong>Every minute</strong><small>{cockpit.nextCheckAt ? `Next: ${timeOnly(cockpit.nextCheckAt)}` : "Ready"}</small></div>
         )}

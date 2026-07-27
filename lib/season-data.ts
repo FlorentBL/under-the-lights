@@ -128,8 +128,7 @@ export async function loadSeason(db: D1Database, participantId?: string): Promis
     loadParticipantHistory(db, participantId),
     db.prepare("SELECT badge_key, earned_at FROM participant_badges WHERE participant_id = ?")
       .bind(participantId).all<Record<string, unknown>>(),
-    db.prepare(`SELECT up.soccerverse_username, up.avatar_data_url, up.datapack_mode,
-        up.updated_at AS profile_updated_at,
+    db.prepare(`SELECT up.soccerverse_username, up.avatar_data_url, up.datapack_mode, up.updated_at AS profile_updated_at,
         u.image AS auth_image
       FROM user u
       LEFT JOIN user_profiles up ON up.user_id = u.id

@@ -4,6 +4,7 @@ import {
   GOAL_WINDOWS,
   MAX_PREDICTION_POINTS,
   NO_GOAL,
+  allowedFirstTeams,
   goalWindowForMinute,
   scorePrediction,
   validatePredictionConsistency,
@@ -70,4 +71,32 @@ test("maps every goal-minute boundary to one supported window", () => {
 test("rejects contradictory goal details", () => {
   assert.match(validatePredictionConsistency({ ...result, homeScore: 0, awayScore: 0 }) || "", /0-0/);
   assert.match(validatePredictionConsistency({ ...result, firstScorer: NO_GOAL }) || "", /with goals/);
+});
+
+test("only allows a team with predicted goals to score first", () => {
+  assert.deepEqual(allowedFirstTeams(0, 1, "home", "away"), ["away"]);
+  assert.deepEqual(allowedFirstTeams(2, 1, "home", "away"), ["home", "away"]);
+  assert.deepEqual(allowedFirstTeams(0, 0, "home", "away"), [NO_GOAL]);
+
+  assert.match(validatePredictionConsistency({
+    ...result,
+    homeScore: 0,
+    awayScore: 1,
+    firstTeam: "home",
+  }, {
+    homeClubId: "home",
+    awayClubId: "away",
+    firstScorerClubId: "home",
+  }) || "", /at least one predicted goal/);
+});
+
+test("requires the first scorer to belong to the selected first team", () => {
+  assert.match(validatePredictionConsistency({
+    ...result,
+    firstTeam: "home",
+  }, {
+    homeClubId: "home",
+    awayClubId: "away",
+    firstScorerClubId: "away",
+  }) || "", /selected first team/);
 });

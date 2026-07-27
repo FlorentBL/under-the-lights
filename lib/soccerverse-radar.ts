@@ -1,6 +1,7 @@
 import clubNamesSource from "@/data/club-mapping.json";
 import leagueNamesSource from "@/data/league-names.json";
 import { hasTwoActiveManagers } from "@/lib/manager-activity";
+import { loadSoccerverseDatapack, type SoccerverseClubMetadata } from "@/lib/soccerverse-datapack";
 import { playersAvailableForClub, type SoccerverseSquadPlayer } from "@/lib/soccerverse-squad";
 
 const GSP_URL = "https://services.soccerverse.com/gsp/";
@@ -48,6 +49,10 @@ export type RadarCandidate = {
   awayClubId: number;
   homeName: string;
   awayName: string;
+  homeLogoUrl: string | null;
+  awayLogoUrl: string | null;
+  homeColor: string | null;
+  awayColor: string | null;
   homePosition: number | null;
   awayPosition: number | null;
   homePoints: number | null;
@@ -201,7 +206,10 @@ export async function inspectManagerEligibility(
   };
 }
 
-export async function calculateRadar(reference = new Date()) {
+export async function calculateRadar(
+  reference = new Date(),
+  datapackClubs = new Map<number, SoccerverseClubMetadata>(),
+) {
   const window = weekendWindow(reference);
   const seasons = await rpc<Season[]>("get_seasons", { game_world_id: GAME_WORLD_ID });
   const season = seasons.find((item) => !item.finished) || seasons[0];
@@ -293,6 +301,8 @@ export async function calculateRadar(reference = new Date()) {
     const awayManager = normalizedManagerName(awayClub)!;
     const homeStrength = squadStrength(squads.get(`squad:${item.fixture.home_club}`), item.fixture.home_club);
     const awayStrength = squadStrength(squads.get(`squad:${item.fixture.away_club}`), item.fixture.away_club);
+    const homeMetadata = datapackClubs.get(item.fixture.home_club);
+    const awayMetadata = datapackClubs.get(item.fixture.away_club);
     const reasons = [...item.reasons];
     let score = item.score + 12;
     reasons.push("Both managers active in the last 14 days");
@@ -318,8 +328,12 @@ export async function calculateRadar(reference = new Date()) {
       divisionLevel: item.competition.level,
       homeClubId: item.fixture.home_club,
       awayClubId: item.fixture.away_club,
-      homeName: clubNames[String(item.fixture.home_club)]?.name || clubNames[String(item.fixture.home_club)]?.n || `Club ${item.fixture.home_club}`,
-      awayName: clubNames[String(item.fixture.away_club)]?.name || clubNames[String(item.fixture.away_club)]?.n || `Club ${item.fixture.away_club}`,
+      homeName: homeMetadata?.name || clubNames[String(item.fixture.home_club)]?.name || clubNames[String(item.fixture.home_club)]?.n || `Club ${item.fixture.home_club}`,
+      awayName: awayMetadata?.name || clubNames[String(item.fixture.away_club)]?.name || clubNames[String(item.fixture.away_club)]?.n || `Club ${item.fixture.away_club}`,
+      homeLogoUrl: homeMetadata?.logoUrl || null,
+      awayLogoUrl: awayMetadata?.logoUrl || null,
+      homeColor: homeMetadata?.color || null,
+      awayColor: awayMetadata?.color || null,
       homePosition: item.home?.position || null,
       awayPosition: item.away?.position || null,
       homePoints: item.home?.points ?? null,
@@ -348,15 +362,19 @@ export async function runAndPersistRadar(db: D1Database, adminId: string, refere
   await db.prepare(`INSERT INTO radar_runs (id, week_key, window_start, window_end, status, created_by, created_at)
     VALUES (?, ?, ?, ?, 'running', ?, ?)`).bind(runId, window.weekKey, window.start, window.end, adminId, now).run();
   try {
-    const result = await calculateRadar(reference);
+    const datapack = await loadSoccerverseDatapack(db);
+    const result = await calculateRadar(reference, datapack.clubs);
     const statements = result.candidates.map((candidate, index) => db.prepare(`INSERT INTO spotlight_candidates
       (id, run_id, rank, score, fixture_id, competition_id, season_id, kickoff, country_code, competition_name, division_level,
-       home_club_id, away_club_id, home_name, away_name, home_position, away_position, home_points, away_points, home_record,
+       home_club_id, away_club_id, home_name, away_name, home_logo_url, away_logo_url, home_color, away_color,
+       home_position, away_position, home_points, away_points, home_record,
        away_record, home_manager, away_manager, home_strength, away_strength, reasons, created_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
       .bind(crypto.randomUUID(), runId, index + 1, Math.round(candidate.score * 100), candidate.fixtureId, candidate.competitionId,
         candidate.seasonId, candidate.kickoff, candidate.countryCode, candidate.competitionName, candidate.divisionLevel,
-        candidate.homeClubId, candidate.awayClubId, candidate.homeName, candidate.awayName, candidate.homePosition, candidate.awayPosition,
+        candidate.homeClubId, candidate.awayClubId, candidate.homeName, candidate.awayName,
+        candidate.homeLogoUrl, candidate.awayLogoUrl, candidate.homeColor, candidate.awayColor,
+        candidate.homePosition, candidate.awayPosition,
         candidate.homePoints, candidate.awayPoints, candidate.homeRecord, candidate.awayRecord, candidate.homeManager, candidate.awayManager,
         candidate.homeStrength === null ? null : Math.round(candidate.homeStrength * 100),
         candidate.awayStrength === null ? null : Math.round(candidate.awayStrength * 100), JSON.stringify(candidate.reasons), Date.now()));
