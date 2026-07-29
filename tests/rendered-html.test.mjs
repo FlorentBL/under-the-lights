@@ -234,6 +234,24 @@ test("exposes the participant registry only to administrators", async () => {
   assert.match(migration, /CREATE TABLE `admin_users`/);
 });
 
+test("lets administrators ban players and revoke their sessions", async () => {
+  const [usersRoute, adminPanel, auth, schema] = await Promise.all([
+    readFile(new URL("../app/api/admin/users/route.ts", import.meta.url), "utf8"),
+    readFile(new URL("../app/admin/admin-panel.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../lib/auth.ts", import.meta.url), "utf8"),
+    readFile(new URL("../db/schema.ts", import.meta.url), "utf8"),
+  ]);
+
+  assert.match(usersRoute, /INSERT INTO banned_users/);
+  assert.match(usersRoute, /DELETE FROM session WHERE user_id/);
+  assert.match(usersRoute, /Remove administrator access before banning this account/);
+  assert.match(adminPanel, /Confirm ban/);
+  assert.match(adminPanel, /Unban/);
+  assert.match(auth, /databaseHooks/);
+  assert.match(auth, /SELECT user_id FROM banned_users/);
+  assert.match(schema, /sqliteTable\("banned_users"/);
+});
+
 test("ships an administrator settlement cockpit", async () => {
   const [route, panel, schema, migration, worker] = await Promise.all([
     readFile(new URL("../app/api/admin/settlement/route.ts", import.meta.url), "utf8"),
