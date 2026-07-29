@@ -55,6 +55,12 @@ export const adminUsers = sqliteTable("admin_users", {
   createdAt: integer("created_at").notNull(),
 }, (table) => [index("admin_users_created_at_idx").on(table.createdAt)]);
 
+export const bannedUsers = sqliteTable("banned_users", {
+  userId: text("user_id").primaryKey().references(() => user.id, { onDelete: "cascade" }),
+  bannedBy: text("banned_by").notNull(),
+  createdAt: integer("created_at").notNull(),
+}, (table) => [index("banned_users_created_at_idx").on(table.createdAt)]);
+
 export const appSettings = sqliteTable("app_settings", {
   key: text("key").primaryKey(),
   value: text("value").notNull(),

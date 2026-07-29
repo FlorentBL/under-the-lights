@@ -25,6 +25,19 @@ export const auth = betterAuth({
     provider: "sqlite",
     schema,
   }),
+  databaseHooks: {
+    session: {
+      create: {
+        before: async (session) => {
+          const banned = await authEnv.DB
+            .prepare("SELECT user_id FROM banned_users WHERE user_id = ? LIMIT 1")
+            .bind(session.userId)
+            .first<{ user_id: string }>();
+          return !banned;
+        },
+      },
+    },
+  },
   emailAndPassword: {
     enabled: true,
     minPasswordLength: 8,

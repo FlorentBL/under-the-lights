@@ -15,6 +15,7 @@ import {
   LinkSimple,
   LockKey,
   MagnifyingGlass,
+  Prohibit,
   Ranking,
   SoccerBall,
   Sparkle,
@@ -95,6 +96,8 @@ type AdminUser = {
   predictionCount: number;
   role: "admin" | "player";
   roleSource: "configured" | "delegated" | null;
+  status: "active" | "banned";
+  bannedAt: number | null;
   isCurrentUser: boolean;
   soccerverseUsername: string | null;
 };
@@ -106,6 +109,7 @@ type UsersPayload = {
     joinedThisWeek: number;
     verified: number;
     predictors: number;
+    banned: number;
   };
 };
 
@@ -681,6 +685,7 @@ function UsersView() {
   const [notice, setNotice] = useState("");
   const [updatingUserId, setUpdatingUserId] = useState<string | null>(null);
   const [pendingDemotionId, setPendingDemotionId] = useState<string | null>(null);
+  const [pendingBanId, setPendingBanId] = useState<string | null>(null);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -732,6 +737,36 @@ function UsersView() {
     }
   }
 
+  async function updateBan(user: AdminUser, banned: boolean) {
+    setUpdatingUserId(user.id);
+    setActionError("");
+    setNotice("");
+    try {
+      const response = await fetch("/api/admin/users", {
+        method: "PATCH",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ userId: user.id, banned }),
+      });
+      const result = await response.json() as { error?: string; status?: AdminUser["status"]; bannedAt?: number | null };
+      if (!response.ok) throw new Error(result.error || "Unable to update player status");
+      setPayload((current) => current ? {
+        ...current,
+        users: current.users.map((item) => item.id === user.id
+          ? { ...item, status: result.status || (banned ? "banned" : "active"), bannedAt: result.bannedAt ?? null }
+          : item),
+        summary: { ...current.summary, banned: Math.max(0, current.summary.banned + (banned ? 1 : -1)) },
+      } : current);
+      setNotice(banned
+        ? `${user.name} has been banned and signed out.`
+        : `${user.name} can sign in again.`);
+      setPendingBanId(null);
+    } catch (cause) {
+      setActionError(cause instanceof Error ? cause.message : "Unable to update player status");
+    } finally {
+      setUpdatingUserId(null);
+    }
+  }
+
   if (error) return <section className="admin-empty error-state"><WarningCircle size={42} /><h2>Registry unavailable.</h2><p>{error}</p></section>;
   if (!payload) return <UsersLoading />;
 
@@ -741,7 +776,7 @@ function UsersView() {
         <Metric icon={UsersThree} label="Registered players" value={String(payload.summary.total)} />
         <Metric icon={CalendarDots} label="Joined this week" value={String(payload.summary.joinedThisWeek)} />
         <Metric icon={CheckCircle} label="Verified accounts" value={String(payload.summary.verified)} />
-        <Metric icon={SoccerBall} label="Made a prediction" value={String(payload.summary.predictors)} />
+        <Metric icon={Prohibit} label="Banned players" value={String(payload.summary.banned)} />
       </section>
 
       <section className="users-registry">
@@ -771,11 +806,29 @@ function UsersView() {
                     <td data-label="Predictions"><strong className="prediction-count">{user.predictionCount}</strong></td>
                     <td data-label="Access">
                       <div className="access-control">
-                        <span className={`access-level ${user.role}`}>{user.roleSource === "configured" ? "Owner admin" : user.role === "admin" ? "Admin" : "Player"}</span>
-                        {user.roleSource === "configured" ? <small>Cloudflare managed</small> : user.role === "player" ? (
-                          <button type="button" onClick={() => updateRole(user, "admin")} disabled={updatingUserId === user.id}>
-                            {updatingUserId === user.id ? "Updating…" : "Make admin"}
+                        <span className={`access-level ${user.status === "banned" ? "banned" : user.role}`}>{user.status === "banned" ? "Banned" : user.roleSource === "configured" ? "Owner admin" : user.role === "admin" ? "Admin" : "Player"}</span>
+                        {user.status === "banned" ? (
+                          <button type="button" onClick={() => updateBan(user, false)} disabled={updatingUserId === user.id}>
+                            {updatingUserId === user.id ? "Updating…" : "Unban"}
                           </button>
+                        ) : user.roleSource === "configured" ? <small>Cloudflare managed</small> : user.role === "player" ? (
+                          <>
+                            <button type="button" onClick={() => updateRole(user, "admin")} disabled={updatingUserId === user.id}>
+                              {updatingUserId === user.id ? "Updating…" : "Make admin"}
+                            </button>
+                            {pendingBanId === user.id ? (
+                              <span className="access-confirm">
+                                <button type="button" className="danger" onClick={() => updateBan(user, true)} disabled={updatingUserId === user.id}>
+                                  {updatingUserId === user.id ? "Updating…" : "Confirm ban"}
+                                </button>
+                                <button type="button" className="quiet" onClick={() => setPendingBanId(null)}>Cancel</button>
+                              </span>
+                            ) : (
+                              <button type="button" className="danger" onClick={() => setPendingBanId(user.id)} disabled={updatingUserId === user.id}>
+                                Ban
+                              </button>
+                            )}
+                          </>
                         ) : pendingDemotionId === user.id ? (
                           <span className="access-confirm">
                             <button type="button" className="danger" onClick={() => updateRole(user, "player")} disabled={updatingUserId === user.id}>
