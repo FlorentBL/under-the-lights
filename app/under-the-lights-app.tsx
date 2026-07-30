@@ -108,37 +108,7 @@ type Spotlight = {
   };
 };
 
-const fallbackSpotlight: Spotlight = {
-  fixtureId: 0,
-  competitionId: 0,
-  divisionLevel: 1,
-  kickoff: 1785004200,
-  homeClubId: 0,
-  awayClubId: 0,
-  countryCode: "POL",
-  competitionName: "I Liga",
-  homeName: "Wisła Kraków",
-  awayName: "Arka Gdynia",
-  homeLogoUrl: null,
-  awayLogoUrl: null,
-  homeColor: null,
-  awayColor: null,
-  homePosition: 2,
-  awayPosition: 1,
-  homePoints: null,
-  awayPoints: null,
-  homeRecord: "W-W-D-W",
-  awayRecord: null,
-  homeManager: null,
-  awayManager: null,
-  homeStrength: null,
-  awayStrength: null,
-  title: "Two points apart. Four games left.",
-  summary: "One night can redraw the race for promotion.",
-  reasons: ["Promotion race"],
-  players: [],
-  result: null,
-};
+type SpotlightLoadState = "loading" | "ready" | "error";
 
 const badgeIcons = {
   bullseye: Target,
@@ -208,7 +178,13 @@ export function UnderTheLightsApp() {
 
 function UnderTheLightsContent() {
   const { language, setLanguage, t } = useI18n();
-  const { data: session, isPending: sessionPending } = authClient.useSession();
+  const {
+    data: session,
+    isPending: sessionPending,
+    isRefetching: sessionRefetching,
+    error: sessionError,
+    refetch: refetchSession,
+  } = authClient.useSession();
   const [view, setView] = useState<View>("spotlight");
   const [mobileOpen, setMobileOpen] = useState(false);
   const [authOpen, setAuthOpen] = useState(false);
@@ -224,7 +200,8 @@ function UnderTheLightsContent() {
   const [submitted, setSubmitted] = useState(false);
   const [saving, setSaving] = useState(false);
   const [notice, setNotice] = useState("");
-  const [spotlight, setSpotlight] = useState<Spotlight>(fallbackSpotlight);
+  const [spotlight, setSpotlight] = useState<Spotlight | null>(null);
+  const [spotlightLoadState, setSpotlightLoadState] = useState<SpotlightLoadState>("loading");
   const [adminUserId, setAdminUserId] = useState("");
   const [predictionScore, setPredictionScore] = useState<PredictionScore | null>(null);
   const [predictionTrends, setPredictionTrends] = useState<PredictionTrends | null>(null);
@@ -232,6 +209,8 @@ function UnderTheLightsContent() {
   const [season, setSeason] = useState<SeasonPayload>(emptySeason);
   const [seasonLoading, setSeasonLoading] = useState(true);
   const pendingSyncRef = useRef("");
+  const sessionRetryCountRef = useRef(0);
+  const spotlightFixtureId = spotlight?.fixtureId;
 
   useEffect(() => {
     const parameters = new URLSearchParams(window.location.search);
@@ -270,6 +249,20 @@ function UnderTheLightsContent() {
 
   const isAdmin = Boolean(session && adminUserId === session.user.id);
 
+  useEffect(() => {
+    if (!sessionError) {
+      sessionRetryCountRef.current = 0;
+      return;
+    }
+    if (sessionRetryCountRef.current >= 2) return;
+    const retryNumber = sessionRetryCountRef.current + 1;
+    const timeout = window.setTimeout(() => {
+      sessionRetryCountRef.current = retryNumber;
+      void refetchSession();
+    }, retryNumber * 1_000);
+    return () => window.clearTimeout(timeout);
+  }, [refetchSession, sessionError]);
+
   const refreshSeason = useCallback(() => {
     return fetch("/api/season", { cache: "no-store" })
       .then(async (response) => {
@@ -282,8 +275,8 @@ function UnderTheLightsContent() {
   }, []);
 
   const refreshPredictionTrends = useCallback(() => {
-    if (!spotlight.fixtureId) return Promise.resolve();
-    return fetch(`/api/predictions/trends?matchId=${spotlight.fixtureId}`, { cache: "no-store" })
+    if (!spotlightFixtureId) return Promise.resolve();
+    return fetch(`/api/predictions/trends?matchId=${spotlightFixtureId}`, { cache: "no-store" })
       .then(async (response) => {
         if (!response.ok) throw new Error("Community picks unavailable");
         return response.json() as Promise<{ trends: PredictionTrends }>;
@@ -291,21 +284,22 @@ function UnderTheLightsContent() {
       .then((payload) => setPredictionTrends(payload.trends))
       .catch(() => setPredictionTrends(null))
       .finally(() => setTrendsLoading(false));
-  }, [spotlight.fixtureId]);
+  }, [spotlightFixtureId]);
 
   const savePrediction = useCallback(async (draft: Prediction, afterAuthentication = false) => {
+    if (!spotlightFixtureId) return false;
     setSaving(true);
     setNotice(afterAuthentication ? t("Signed in. Locking your prediction...") : "");
     try {
       const response = await fetch("/api/predictions", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ matchId: String(spotlight.fixtureId), ...draft }),
+        body: JSON.stringify({ matchId: String(spotlightFixtureId), ...draft }),
       });
       const payload = await response.json() as { error?: string };
       if (!response.ok) throw new Error(payload.error || t("Prediction could not be saved"));
-      window.localStorage.removeItem(pendingPredictionKey(spotlight.fixtureId));
-      window.localStorage.removeItem(`utl-prediction:${spotlight.fixtureId}`);
+      window.localStorage.removeItem(pendingPredictionKey(spotlightFixtureId));
+      window.localStorage.removeItem(`utl-prediction:${spotlightFixtureId}`);
       setPrediction(draft);
       setSubmitted(true);
       setNotice(t("Prediction locked. You can edit it until kick-off."));
@@ -319,7 +313,7 @@ function UnderTheLightsContent() {
     } finally {
       setSaving(false);
     }
-  }, [refreshPredictionTrends, refreshSeason, spotlight.fixtureId, t]);
+  }, [refreshPredictionTrends, refreshSeason, spotlightFixtureId, t]);
 
   useEffect(() => {
     if (sessionPending) return;
@@ -330,14 +324,16 @@ function UnderTheLightsContent() {
     void refreshPredictionTrends();
   }, [refreshPredictionTrends]);
 
-  useEffect(() => {
-    fetch("/api/spotlight/current", { cache: "no-store" })
-      .then(async (response) => await response.json() as { spotlight?: Spotlight | null })
-      .then((payload) => {
-        if (!payload.spotlight) {
-          setTrendsLoading(false);
-          return;
-        }
+  const loadSpotlight = useCallback(async () => {
+    setSpotlightLoadState("loading");
+    let lastError: unknown;
+    for (const delay of [0, 700, 1_500]) {
+      if (delay) await new Promise((resolve) => window.setTimeout(resolve, delay));
+      try {
+        const response = await fetch("/api/spotlight/current", { cache: "no-store" });
+        if (!response.ok) throw new Error("Spotlight unavailable");
+        const payload = await response.json() as { spotlight?: Spotlight | null };
+        if (!payload.spotlight) throw new Error("No published spotlight");
         const next = payload.spotlight;
         setPredictionTrends(null);
         setTrendsLoading(true);
@@ -349,12 +345,24 @@ function UnderTheLightsContent() {
           goalWindow: "16-30",
           firstTeam: String(next.homeClubId),
         });
-      })
-      .catch(() => setTrendsLoading(false));
+        setSpotlightLoadState("ready");
+        return;
+      } catch (error) {
+        lastError = error;
+      }
+    }
+    console.error("Unable to load the current Spotlight", lastError);
+    setTrendsLoading(false);
+    setSpotlightLoadState("error");
   }, []);
 
   useEffect(() => {
-    if (!spotlight.fixtureId || spotlight.result) return;
+    const timeout = window.setTimeout(() => void loadSpotlight(), 0);
+    return () => window.clearTimeout(timeout);
+  }, [loadSpotlight]);
+
+  useEffect(() => {
+    if (!spotlight?.fixtureId || spotlight.result) return;
     let interval: number | null = null;
     let active = true;
     const refreshResult = () => {
@@ -376,14 +384,14 @@ function UnderTheLightsContent() {
       window.clearTimeout(timeout);
       if (interval !== null) window.clearInterval(interval);
     };
-  }, [spotlight.fixtureId, spotlight.kickoff, spotlight.result]);
+  }, [spotlight?.fixtureId, spotlight?.kickoff, spotlight?.result]);
 
   useEffect(() => {
-    if (spotlight.result?.settledAt) void refreshSeason();
-  }, [refreshSeason, spotlight.result?.settledAt]);
+    if (spotlight?.result?.settledAt) void refreshSeason();
+  }, [refreshSeason, spotlight?.result?.settledAt]);
 
   useEffect(() => {
-    if (sessionPending || !spotlight.fixtureId) return;
+    if (sessionPending || !spotlight?.fixtureId) return;
     const controller = new AbortController();
     const pending = readPendingPrediction(spotlight.fixtureId);
     if (!session) {
@@ -417,7 +425,7 @@ function UnderTheLightsContent() {
       })
       .catch(() => undefined);
     return () => controller.abort();
-  }, [savePrediction, session, sessionPending, spotlight.fixtureId, spotlight.result?.settledAt]);
+  }, [savePrediction, session, sessionPending, spotlight?.fixtureId, spotlight?.result?.settledAt]);
 
   const navigate = (next: View) => {
     setView(next);
@@ -427,6 +435,7 @@ function UnderTheLightsContent() {
 
   async function submitPrediction(event: FormEvent) {
     event.preventDefault();
+    if (!spotlight) return;
     if (!session) {
       try {
         window.localStorage.setItem(pendingPredictionKey(spotlight.fixtureId), JSON.stringify(prediction));
@@ -467,7 +476,17 @@ function UnderTheLightsContent() {
             </select>
             <CaretDown size={13} weight="bold" aria-hidden="true" />
           </label>
-          {session ? (
+          {sessionPending || sessionRefetching ? (
+            <div className="session-status loading" role="status" aria-label={t("Checking session")}>
+              <span aria-hidden="true" />
+              <span>{t("Checking session")}</span>
+            </div>
+          ) : sessionError ? (
+            <button className="session-status error" onClick={() => void refetchSession()}>
+              <span>{t("Session unavailable")}</span>
+              <strong>{t("Retry session")}</strong>
+            </button>
+          ) : session ? (
             <button className="profile-chip" onClick={() => navigate("profile")}>
               <span className="avatar">{initials(session.user.name)}</span>
               <span>{session.user.name}</span>
@@ -485,25 +504,31 @@ function UnderTheLightsContent() {
 
       <main>
         {view === "spotlight" && (
-          <SpotlightView
-            spotlight={spotlight}
-            prediction={prediction}
-            setPrediction={setPrediction}
-            submitted={submitted}
-            saving={saving}
-            notice={notice}
-            score={predictionScore}
-            trends={predictionTrends}
-            trendsLoading={trendsLoading}
-            leaders={season.leaderboard}
-            viewer={season.viewer}
-            projectedPoints={MAX_PREDICTION_POINTS}
-            onSubmit={submitPrediction}
-            onLeaderboard={() => navigate("leaderboard")}
-            onAchievements={() => navigate("achievements")}
-          />
+          spotlightLoadState !== "ready" || !spotlight
+            ? <SpotlightStatus state={spotlightLoadState} onRetry={loadSpotlight} />
+            : <SpotlightView
+              spotlight={spotlight}
+              prediction={prediction}
+              setPrediction={setPrediction}
+              submitted={submitted}
+              saving={saving}
+              notice={notice}
+              score={predictionScore}
+              trends={predictionTrends}
+              trendsLoading={trendsLoading}
+              leaders={season.leaderboard}
+              viewer={season.viewer}
+              projectedPoints={MAX_PREDICTION_POINTS}
+              onSubmit={submitPrediction}
+              onLeaderboard={() => navigate("leaderboard")}
+              onAchievements={() => navigate("achievements")}
+            />
         )}
-        {view === "how-it-works" && <HowItWorksView spotlight={spotlight} onPlay={() => navigate("spotlight")} />}
+        {view === "how-it-works" && (
+          spotlight
+            ? <HowItWorksView spotlight={spotlight} onPlay={() => navigate("spotlight")} />
+            : <SpotlightStatus state={spotlightLoadState} onRetry={loadSpotlight} />
+        )}
         {view === "leaderboard" && <LeaderboardView leaders={season.leaderboard} loading={seasonLoading} />}
         {view === "achievements" && <AchievementsView viewer={season.viewer} user={session?.user ?? null} loading={seasonLoading} onSignIn={openAuth} />}
         {view === "project" && <ProjectView onPlay={() => navigate("spotlight")} />}
@@ -822,6 +847,32 @@ function AuthShell({ onClose, children }: { onClose: () => void; children: React
 
 function NavButton({ active, onClick, children }: { active: boolean; onClick: () => void; children: React.ReactNode }) {
   return <button className={active ? "nav-button active" : "nav-button"} onClick={onClick}>{children}</button>;
+}
+
+function SpotlightStatus({ state, onRetry }: { state: SpotlightLoadState; onRetry: () => Promise<void> }) {
+  const { t } = useI18n();
+  const failed = state === "error";
+  return (
+    <section className="spotlight-status" aria-live="polite" aria-busy={!failed}>
+      <Image className="spotlight-status-photo" src="/stadium-night.jpg" alt="" fill priority sizes="100vw" />
+      <div className="spotlight-status-scrim" aria-hidden="true" />
+      <article className={failed ? "spotlight-status-panel error" : "spotlight-status-panel"}>
+        <Broadcast size={30} weight={failed ? "regular" : "duotone"} aria-hidden="true" />
+        <span>{t("Featured match")}</span>
+        <h1>{failed ? t("The featured match is temporarily unavailable.") : t("Loading the featured match.")}</h1>
+        <p>{failed
+          ? t("Your selected match has not changed. Please try again.")
+          : t("Retrieving the selected fixture and your prediction.")}</p>
+        {failed ? (
+          <button type="button" onClick={() => void onRetry()}>
+            {t("Try again")} <ArrowRight size={18} weight="bold" />
+          </button>
+        ) : (
+          <div className="spotlight-status-skeleton" aria-hidden="true"><span /><span /><span /></div>
+        )}
+      </article>
+    </section>
+  );
 }
 
 function SpotlightView({ spotlight, prediction, setPrediction, submitted, saving, notice, score, trends, trendsLoading, leaders, viewer, projectedPoints, onSubmit, onLeaderboard, onAchievements }: {

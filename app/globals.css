@@ -154,8 +154,83 @@ button:focus-visible, a:focus-visible, select:focus-visible, input:focus-visible
 .sign-in-button:active, .profile-chip:active { transform: translateY(1px); }
 .sign-in-button:disabled { opacity: .55; }
 .profile-chip { padding: 5px 13px 5px 5px; }
+.session-status {
+  min-height: 42px;
+  display: inline-flex;
+  align-items: center;
+  gap: 9px;
+  border: 1px solid var(--line-strong);
+  border-radius: 10px;
+  padding: 0 13px;
+  background: rgba(255,255,255,.035);
+  color: #a8aba7;
+  font-size: 10px;
+  font-weight: 760;
+  white-space: nowrap;
+}
+.session-status.loading > span:first-child {
+  width: 22px;
+  height: 22px;
+  border-radius: 7px;
+  background: rgba(217,172,67,.16);
+  animation: status-pulse 1.4s ease-in-out infinite;
+}
+button.session-status { font: inherit; cursor: pointer; }
+.session-status.error { color: #c8cac5; text-align: left; }
+.session-status.error strong { color: var(--gold-bright); font-size: 9px; text-transform: uppercase; letter-spacing: .08em; }
+.session-status.error:hover { border-color: rgba(217,172,67,.48); background: rgba(217,172,67,.07); }
 .avatar { width: 30px; height: 30px; border-radius: 8px; display: grid; place-items: center; background: var(--gold); color: #151208; font-size: 10px; font-weight: 900; }
 .mobile-menu { display: none; }
+
+.spotlight-status {
+  min-height: calc(100dvh - var(--header-height));
+  position: relative;
+  isolation: isolate;
+  overflow: hidden;
+  display: grid;
+  place-items: center;
+  padding: clamp(32px, 7vw, 88px) 20px;
+  background: #0b0c0c;
+}
+.spotlight-status-photo { z-index: -2; object-fit: cover; filter: saturate(.55) contrast(1.08) brightness(.46); }
+.spotlight-status-scrim { position: absolute; inset: 0; z-index: -1; background: linear-gradient(90deg, rgba(8,9,9,.95), rgba(8,9,9,.68)), linear-gradient(0deg, rgba(8,9,9,.9), transparent 55%); }
+.spotlight-status-panel {
+  width: min(100%, 620px);
+  padding: clamp(30px, 5vw, 52px);
+  border: 1px solid rgba(255,255,255,.16);
+  border-radius: var(--radius);
+  background: rgba(14,16,16,.86);
+  color: var(--gold-bright);
+  box-shadow: 0 30px 100px rgba(0,0,0,.5), inset 0 1px 0 rgba(255,255,255,.08);
+  backdrop-filter: blur(18px) saturate(120%);
+}
+.spotlight-status-panel > span { display: block; margin-top: 22px; color: #8c908d; font-size: 10px; font-weight: 820; letter-spacing: .14em; text-transform: uppercase; }
+.spotlight-status-panel h1 { max-width: 520px; margin: 9px 0 12px; color: var(--ink); font-size: clamp(34px, 5vw, 58px); line-height: .98; letter-spacing: -.055em; }
+.spotlight-status-panel p { max-width: 480px; margin: 0; color: #b9bcb7; font-size: 15px; line-height: 1.55; }
+.spotlight-status-panel button {
+  min-height: 48px;
+  display: inline-flex;
+  align-items: center;
+  gap: 9px;
+  margin-top: 28px;
+  border: 0;
+  border-radius: 10px;
+  padding: 0 18px;
+  background: var(--gold-bright);
+  color: #18150d;
+  font-weight: 850;
+  cursor: pointer;
+}
+.spotlight-status-panel button:hover { background: #f8d77f; transform: translateY(-2px); }
+.spotlight-status-panel button:active { transform: translateY(1px); }
+.spotlight-status-panel.error { border-color: rgba(217,172,67,.26); }
+.spotlight-status-skeleton { display: grid; gap: 9px; margin-top: 30px; }
+.spotlight-status-skeleton span { height: 11px; border-radius: 4px; background: linear-gradient(90deg, rgba(255,255,255,.055), rgba(217,172,67,.14), rgba(255,255,255,.055)); background-size: 220% 100%; animation: status-shimmer 1.5s ease-in-out infinite; }
+.spotlight-status-skeleton span:nth-child(1) { width: 88%; }
+.spotlight-status-skeleton span:nth-child(2) { width: 72%; animation-delay: .1s; }
+.spotlight-status-skeleton span:nth-child(3) { width: 48%; animation-delay: .2s; }
+@keyframes status-shimmer { from { background-position: 120% 0; } to { background-position: -120% 0; } }
+@keyframes status-pulse { 50% { opacity: .42; } }
 
 .match-hero {
   --spot-x: 70%;
@@ -964,6 +1039,7 @@ select {
 }
 
 @media (prefers-reduced-motion: reduce) {
+  .session-status.loading > span:first-child, .spotlight-status-skeleton span { animation: none; }
   .hero-pointer-light { display: none; }
   .trends-skeleton span { animation: none; background: rgba(255,255,255,.02); }
 }
