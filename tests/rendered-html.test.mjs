@@ -138,7 +138,7 @@ test("shows a complete post-match review and refreshes settled data", async () =
   assert.match(app, /Your match review/);
   assert.match(app, /New achievements/);
   assert.match(app, /window\.setInterval\(refreshResult, 15_000\)/);
-  assert.match(app, /spotlight\.result\?\.settledAt/);
+  assert.match(app, /spotlight\?\.result\?\.settledAt/);
 });
 
 test("uses live season data instead of demo standings and histories", async () => {
@@ -329,4 +329,16 @@ test("lets participants upload a safe custom profile photo", async () => {
   assert.match(seasonData, /publicAvatarUrl/);
   assert.match(schema, /avatarDataUrl/);
   assert.match(migration, /ADD COLUMN `avatar_data_url`/);
+});
+
+test("shows honest loading and recovery states instead of a fallback match or false sign-out", async () => {
+  const app = await readFile(new URL("../app/under-the-lights-app.tsx", import.meta.url), "utf8");
+
+  assert.doesNotMatch(app, /Wisła Kraków|Arka Gdynia|fallbackSpotlight/);
+  assert.match(app, /useState<Spotlight \| null>\(null\)/);
+  assert.match(app, /SpotlightStatus/);
+  assert.match(app, /\[0, 700, 1_500\]/);
+  assert.match(app, /sessionPending \|\| sessionRefetching/);
+  assert.match(app, /sessionError \?/);
+  assert.match(app, /refetchSession/);
 });
