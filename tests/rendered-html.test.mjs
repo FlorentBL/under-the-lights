@@ -19,6 +19,8 @@ test("ships the Under the Lights product surface", async () => {
   assert.match(app, /Make your prediction/);
   assert.match(app, /Leaderboard/);
   assert.match(app, /Achievements/);
+  assert.match(app, /className="beta-badge"/);
+  assert.match(app, />Beta<\/span>/);
   assert.match(app, /Prediction history/);
   assert.match(app, /How it works/);
   assert.match(app, /The project/);
