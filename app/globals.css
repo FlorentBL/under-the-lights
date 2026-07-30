@@ -65,7 +65,7 @@ button:focus-visible, a:focus-visible, select:focus-visible, input:focus-visible
   backdrop-filter: blur(18px) saturate(140%);
   box-shadow: inset 0 1px 0 rgba(255,255,255,.035);
 }
-.brand-button { justify-self: start; border: 0; padding: 0; background: transparent; cursor: pointer; }
+.brand-button { position: relative; justify-self: start; border: 0; padding: 0; background: transparent; cursor: pointer; }
 .brand-logo {
   display: block;
   width: 210px;
@@ -75,6 +75,26 @@ button:focus-visible, a:focus-visible, select:focus-visible, input:focus-visible
   mix-blend-mode: screen;
   filter: brightness(1.08) contrast(1.08);
   transition: filter .25s ease, transform .25s ease;
+}
+.beta-badge {
+  position: absolute;
+  right: 22px;
+  bottom: 8px;
+  min-height: 20px;
+  display: inline-flex;
+  align-items: center;
+  padding: 0 7px;
+  border: 1px solid rgba(242,202,103,.38);
+  border-radius: 7px;
+  background: rgba(217,172,67,.1);
+  color: var(--gold-bright);
+  font-family: var(--font-geist-mono);
+  font-size: 8px;
+  font-weight: 800;
+  letter-spacing: .1em;
+  line-height: 1;
+  text-transform: uppercase;
+  box-shadow: inset 0 1px 0 rgba(255,255,255,.06);
 }
 .brand-button:hover .brand-logo { filter: brightness(1.2) contrast(1.08); transform: translateY(-1px); }
 .main-nav { display: flex; align-items: center; gap: 4px; }
@@ -978,6 +998,7 @@ select {
   :root { --header-height: 68px; }
   .site-header { grid-template-columns: 1fr auto; }
   .brand-logo { width: 154px; height: 54px; }
+  .beta-badge { right: 0; bottom: 5px; }
   .main-nav { display: none; position: absolute; left: 14px; right: 14px; top: 74px; flex-direction: column; align-items: stretch; padding: 10px; border: 1px solid var(--line-strong); border-radius: 12px; background: #131515; box-shadow: 0 28px 70px rgba(0,0,0,.55); }
   .main-nav.is-open { display: flex; }
   .nav-button { text-align: left; }
@@ -1077,7 +1098,7 @@ select {
 }
 
 @media (max-width: 520px) {
-  .sign-in-button { min-height: 39px; padding-inline: 12px; font-size: 12px; }
+  .sign-in-button { width: 42px; min-height: 42px; justify-content: center; padding: 0; gap: 0; font-size: 0; }
   .hero-copy p { font-size: 16px; }
   .team-mark strong { font-size: 12px; }
   .team-mark > span { font-size: 9px; }

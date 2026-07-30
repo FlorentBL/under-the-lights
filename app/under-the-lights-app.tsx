@@ -444,8 +444,9 @@ function UnderTheLightsContent() {
   return (
     <div className="app-shell">
       <header className="site-header">
-        <button className="brand-button" onClick={() => navigate("spotlight")} aria-label="Under the Lights home">
+        <button className="brand-button" onClick={() => navigate("spotlight")} aria-label="Under the Lights Beta home">
           <Image src="/logo.png" alt="Soccerverse Under the Lights" className="brand-logo" width={1774} height={887} priority />
+          <span className="beta-badge" aria-hidden="true">Beta</span>
         </button>
         <nav className={mobileOpen ? "main-nav is-open" : "main-nav"} aria-label={t("Main navigation")}>
           <NavButton active={view === "spotlight"} onClick={() => navigate("spotlight")}>{t("Spotlight")}</NavButton>
