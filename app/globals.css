@@ -146,6 +146,7 @@ button:focus-visible, a:focus-visible, select:focus-visible, input:focus-visible
   color: var(--ink);
   padding: 0 15px;
   font-weight: 780;
+  white-space: nowrap;
   cursor: pointer;
   transition: border-color .2s ease, background .2s ease, transform .2s ease;
 }
