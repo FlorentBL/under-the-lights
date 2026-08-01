@@ -1524,7 +1524,7 @@ function ProjectView({ onPlay }: { onPlay: () => void }) {
       </section>
 
       <section className="built-open">
-        <div><GithubLogo size={40} weight="duotone" /><h2>{t("Built in public")}</h2><p>{t("Under the Lights is an open-source community companion to Soccerverse. The code, scoring logic and product evolution can be inspected on GitHub.")}</p><a href="https://github.com/FlorentBL/under-the-lights" target="_blank" rel="noreferrer">{t("View the repository")}<ArrowSquareOut size={17} weight="bold" /></a></div>
+        <div><GithubLogo size={40} weight="duotone" /><h2>{t("Built in public")}</h2><p>{t("Under the Lights is an open-source community companion to Soccerverse. The code, scoring logic and product evolution can be inspected on GitHub.")}</p><a href="https://github.com/SoccerverseBuilders/under-the-lights" target="_blank" rel="noreferrer">{t("View the repository")}<ArrowSquareOut size={17} weight="bold" /></a></div>
         <div className="project-stack"><div><Database size={23} /><span>{t("Persistent game data")}</span><strong>Cloudflare D1</strong></div><div><ShieldCheck size={23} /><span>{t("Player identity")}</span><strong>Better Auth</strong></div><div><Crosshair size={23} /><span>{t("Match selection")}</span><strong>Spotlight Radar</strong></div></div>
       </section>
 
