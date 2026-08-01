@@ -2,7 +2,7 @@
 
 import { ChatCircleText, PaperPlaneRight, PencilSimple, Trash } from "@phosphor-icons/react";
 import { useEffect, useState, type FormEvent } from "react";
-import { MAX_COMMENT_LENGTH } from "@/lib/comments";
+import { COMMENT_ERROR_MESSAGES, MAX_COMMENT_LENGTH, type CommentErrorCode } from "@/lib/comments";
 import { useI18n } from "@/lib/i18n";
 
 type MatchComment = {
@@ -13,6 +13,11 @@ type MatchComment = {
   body: string;
   createdAt: number;
   editedAt: number | null;
+};
+
+type CommentResponse = {
+  comment?: MatchComment;
+  code?: CommentErrorCode;
 };
 
 function initials(name: string) {
@@ -35,6 +40,10 @@ export function MatchComments({ matchId, user, isAdmin, onSignIn }: {
   const [editDraft, setEditDraft] = useState("");
   const [savingEdit, setSavingEdit] = useState(false);
   const [editNotice, setEditNotice] = useState("");
+
+  function responseError(payload: CommentResponse, fallback: string) {
+    return t(payload.code ? COMMENT_ERROR_MESSAGES[payload.code] : fallback);
+  }
 
   useEffect(() => {
     const controller = new AbortController();
@@ -65,9 +74,9 @@ export function MatchComments({ matchId, user, isAdmin, onSignIn }: {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ matchId: String(matchId), body: draft }),
       });
-      const payload = await response.json() as { comment?: MatchComment; error?: string };
+      const payload = await response.json() as CommentResponse;
       const created = payload.comment;
-      if (!response.ok || !created) throw new Error(payload.error || t("Comment could not be posted"));
+      if (!response.ok || !created) throw new Error(responseError(payload, "Comment could not be posted"));
       setComments((current) => [created, ...current]);
       setDraft("");
     } catch (error) {
@@ -100,9 +109,9 @@ export function MatchComments({ matchId, user, isAdmin, onSignIn }: {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ id: editingId, body: editDraft }),
       });
-      const payload = await response.json() as { comment?: MatchComment; error?: string };
+      const payload = await response.json() as CommentResponse;
       const updated = payload.comment;
-      if (!response.ok || !updated) throw new Error(payload.error || t("Comment could not be updated"));
+      if (!response.ok || !updated) throw new Error(responseError(payload, "Comment could not be updated"));
       setComments((current) => current.map((comment) => comment.id === updated.id ? updated : comment));
       cancelEdit();
     } catch (error) {
