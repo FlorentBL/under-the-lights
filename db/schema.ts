@@ -224,3 +224,14 @@ export const participantBadges = sqliteTable("participant_badges", {
   uniqueIndex("participant_badges_participant_key_idx").on(table.participantId, table.badgeKey),
   index("participant_badges_earned_idx").on(table.earnedAt),
 ]);
+
+export const matchComments = sqliteTable("match_comments", {
+  id: text("id").primaryKey(),
+  matchId: text("match_id").notNull(),
+  userId: text("user_id").notNull().references(() => user.id, { onDelete: "cascade" }),
+  body: text("body").notNull(),
+  createdAt: integer("created_at").notNull(),
+}, (table) => [
+  index("match_comments_match_created_idx").on(table.matchId, table.createdAt),
+  index("match_comments_user_created_idx").on(table.userId, table.createdAt),
+]);

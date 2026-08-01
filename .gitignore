@@ -15,3 +15,5 @@ dist/
 coverage/
 *.log
 *.tsbuildinfo
+claude-docs/
+.vs/
