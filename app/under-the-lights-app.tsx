@@ -37,6 +37,7 @@ import {
 } from "@phosphor-icons/react";
 import Image from "next/image";
 import { ChangeEvent, FormEvent, useCallback, useEffect, useRef, useState } from "react";
+import { MatchComments } from "@/app/match-comments";
 import { authClient } from "@/lib/auth-client";
 import { LanguageProvider, languages, type Language, useI18n } from "@/lib/i18n";
 import { positionCategories, positionSummary, primaryPositionCategory, type PositionCategory } from "@/lib/player-positions";
@@ -518,6 +519,9 @@ function UnderTheLightsContent() {
               trendsLoading={trendsLoading}
               leaders={season.leaderboard}
               viewer={season.viewer}
+              user={session?.user ?? null}
+              isAdmin={isAdmin}
+              onSignIn={openAuth}
               projectedPoints={MAX_PREDICTION_POINTS}
               onSubmit={submitPrediction}
               onLeaderboard={() => navigate("leaderboard")}
@@ -875,7 +879,7 @@ function SpotlightStatus({ state, onRetry }: { state: SpotlightLoadState; onRetr
   );
 }
 
-function SpotlightView({ spotlight, prediction, setPrediction, submitted, saving, notice, score, trends, trendsLoading, leaders, viewer, projectedPoints, onSubmit, onLeaderboard, onAchievements }: {
+function SpotlightView({ spotlight, prediction, setPrediction, submitted, saving, notice, score, trends, trendsLoading, leaders, viewer, user, isAdmin, onSignIn, projectedPoints, onSubmit, onLeaderboard, onAchievements }: {
   spotlight: Spotlight;
   prediction: Prediction;
   setPrediction: (prediction: Prediction) => void;
@@ -887,6 +891,9 @@ function SpotlightView({ spotlight, prediction, setPrediction, submitted, saving
   trendsLoading: boolean;
   leaders: SeasonPayload["leaderboard"];
   viewer: SeasonViewer | null;
+  user: { id: string; name: string } | null;
+  isAdmin: boolean;
+  onSignIn: () => void;
   projectedPoints: number;
   onSubmit: (event: FormEvent) => void;
   onLeaderboard: () => void;
@@ -1045,6 +1052,8 @@ function SpotlightView({ spotlight, prediction, setPrediction, submitted, saving
         </form>
         <CommunityTrends trends={trends} loading={trendsLoading} homeName={spotlight.homeName} awayName={spotlight.awayName} />
       </section>}
+
+      <MatchComments matchId={spotlight.fixtureId} user={user} isAdmin={isAdmin} onSignIn={onSignIn} />
 
       <section className="week-leaders">
         <div className="leaders-copy"><span>{t("Season table")}</span><h2>{t("The season never stops.")}</h2><p>{t("Weekly precision builds a reputation across every league.")}</p><button className="text-link" onClick={onLeaderboard}>{t("View full leaderboard")} <ArrowRight size={18} /></button></div>

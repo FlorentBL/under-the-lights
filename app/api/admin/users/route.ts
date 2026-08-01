@@ -17,10 +17,12 @@ type UserRow = {
   delegated_admin_id: string | null;
   banned_user_id: string | null;
   banned_at: number | null;
+  muted_user_id: string | null;
+  muted_at: number | null;
   soccerverse_username: string | null;
 };
 
-type UserUpdate = { userId?: unknown; role?: unknown; banned?: unknown };
+type UserUpdate = { userId?: unknown; role?: unknown; banned?: unknown; muted?: unknown };
 
 export async function GET(request: Request) {
   const access = await requireAdmin(request);
@@ -42,6 +44,8 @@ export async function GET(request: Request) {
       MAX(au.user_id) AS delegated_admin_id,
       MAX(bu.user_id) AS banned_user_id,
       MAX(bu.created_at) AS banned_at,
+      MAX(cm.user_id) AS muted_user_id,
+      MAX(cm.created_at) AS muted_at,
       MAX(up.soccerverse_username) AS soccerverse_username
     FROM user u
     LEFT JOIN account a ON a.user_id = u.id
@@ -49,6 +53,7 @@ export async function GET(request: Request) {
     LEFT JOIN predictions p ON p.participant_id = u.id
     LEFT JOIN admin_users au ON au.user_id = u.id
     LEFT JOIN banned_users bu ON bu.user_id = u.id
+    LEFT JOIN comment_mutes cm ON cm.user_id = u.id AND cm.revoked_at IS NULL
     LEFT JOIN user_profiles up ON up.user_id = u.id
     GROUP BY u.id
     ORDER BY u.created_at DESC
@@ -78,6 +83,8 @@ export async function GET(request: Request) {
       roleSource,
       status: user.banned_user_id ? "banned" : "active",
       bannedAt: user.banned_at ? Number(user.banned_at) : null,
+      muted: Boolean(user.muted_user_id),
+      mutedAt: user.muted_at ? Number(user.muted_at) : null,
       isCurrentUser: user.id === access.session.user.id,
       soccerverseUsername: user.soccerverse_username || null,
     };
@@ -93,6 +100,7 @@ export async function GET(request: Request) {
       verified: normalized.filter((user) => user.emailVerified).length,
       predictors: normalized.filter((user) => user.predictionCount > 0).length,
       banned: normalized.filter((user) => user.status === "banned").length,
+      muted: normalized.filter((user) => user.muted).length,
     },
   });
 }
@@ -110,9 +118,12 @@ export async function PATCH(request: Request) {
   const userId = typeof body?.userId === "string" ? body.userId.trim() : "";
   const role = body?.role;
   const banned = body?.banned;
+  const muted = body?.muted;
   const updatesRole = role === "admin" || role === "player";
   const updatesBan = typeof banned === "boolean";
-  if (!userId || updatesRole === updatesBan) {
+  const updatesMute = typeof muted === "boolean";
+  const requestedUpdates = [updatesRole, updatesBan, updatesMute].filter(Boolean).length;
+  if (!userId || requestedUpdates !== 1) {
     return NextResponse.json({ error: "A valid user update is required" }, { status: 400 });
   }
 
@@ -158,6 +169,30 @@ export async function PATCH(request: Request) {
 
     await db.prepare("DELETE FROM banned_users WHERE user_id = ?").bind(target.id).run();
     return NextResponse.json({ userId: target.id, status: "active", bannedAt: null });
+  }
+
+  if (updatesMute) {
+    if (target.id === access.session.user.id) {
+      return NextResponse.json({ error: "You cannot mute your own account" }, { status: 400 });
+    }
+    if (targetIsConfiguredAdmin || target.delegated_admin_id) {
+      return NextResponse.json({ error: "Remove administrator access before muting this account" }, { status: 400 });
+    }
+
+    const now = Date.now();
+    if (muted) {
+      const active = await db.prepare("SELECT id FROM comment_mutes WHERE user_id = ? AND revoked_at IS NULL LIMIT 1")
+        .bind(target.id).first<{ id: string }>();
+      if (!active) {
+        await db.prepare("INSERT INTO comment_mutes (id, user_id, muted_by, created_at) VALUES (?, ?, ?, ?)")
+          .bind(crypto.randomUUID(), target.id, access.session.user.id, now).run();
+      }
+      return NextResponse.json({ userId: target.id, muted: true, mutedAt: now });
+    }
+
+    await db.prepare("UPDATE comment_mutes SET revoked_at = ?, revoked_by = ? WHERE user_id = ? AND revoked_at IS NULL")
+      .bind(now, access.session.user.id, target.id).run();
+    return NextResponse.json({ userId: target.id, muted: false, mutedAt: null });
   }
 
   if (role === "admin" && !target.email_verified) {
