@@ -1,5 +1,7 @@
 export const MAX_COMMENT_LENGTH = 1000;
 export const COMMENT_COOLDOWN_MS = 30_000;
+export const COMMENT_DAILY_LIMIT = 20;
+export const COMMENT_DAILY_WINDOW_MS = 86_400_000;
 
 export class CommentValidationError extends Error {
   constructor(message: string) {

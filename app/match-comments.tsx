@@ -1,6 +1,6 @@
 "use client";
 
-import { ChatCircleText, PaperPlaneRight, Trash } from "@phosphor-icons/react";
+import { ChatCircleText, PaperPlaneRight, PencilSimple, Trash } from "@phosphor-icons/react";
 import { useEffect, useState, type FormEvent } from "react";
 import { MAX_COMMENT_LENGTH } from "@/lib/comments";
 import { useI18n } from "@/lib/i18n";
@@ -12,15 +12,17 @@ type MatchComment = {
   avatarUrl: string | null;
   body: string;
   createdAt: number;
+  editedAt: number | null;
 };
 
 function initials(name: string) {
   return name.split(/\s+/).map((part) => part[0]).filter(Boolean).slice(0, 2).join("").toUpperCase();
 }
 
-export function MatchComments({ matchId, user, onSignIn }: {
+export function MatchComments({ matchId, user, isAdmin, onSignIn }: {
   matchId: number;
   user: { id: string; name: string } | null;
+  isAdmin: boolean;
   onSignIn: () => void;
 }) {
   const { t, locale } = useI18n();
@@ -29,6 +31,10 @@ export function MatchComments({ matchId, user, onSignIn }: {
   const [draft, setDraft] = useState("");
   const [posting, setPosting] = useState(false);
   const [notice, setNotice] = useState("");
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [editDraft, setEditDraft] = useState("");
+  const [savingEdit, setSavingEdit] = useState(false);
+  const [editNotice, setEditNotice] = useState("");
 
   useEffect(() => {
     const controller = new AbortController();
@@ -68,6 +74,41 @@ export function MatchComments({ matchId, user, onSignIn }: {
       setNotice(error instanceof Error ? error.message : t("Comment could not be posted"));
     } finally {
       setPosting(false);
+    }
+  }
+
+  function beginEdit(comment: MatchComment) {
+    setEditingId(comment.id);
+    setEditDraft(comment.body);
+    setEditNotice("");
+  }
+
+  function cancelEdit() {
+    setEditingId(null);
+    setEditDraft("");
+    setEditNotice("");
+  }
+
+  async function saveEdit(event: FormEvent) {
+    event.preventDefault();
+    if (!editingId || savingEdit || !editDraft.trim()) return;
+    setSavingEdit(true);
+    setEditNotice("");
+    try {
+      const response = await fetch("/api/comments", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id: editingId, body: editDraft }),
+      });
+      const payload = await response.json() as { comment?: MatchComment; error?: string };
+      const updated = payload.comment;
+      if (!response.ok || !updated) throw new Error(payload.error || t("Comment could not be updated"));
+      setComments((current) => current.map((comment) => comment.id === updated.id ? updated : comment));
+      cancelEdit();
+    } catch (error) {
+      setEditNotice(error instanceof Error ? error.message : t("Comment could not be updated"));
+    } finally {
+      setSavingEdit(false);
     }
   }
 
@@ -129,14 +170,44 @@ export function MatchComments({ matchId, user, onSignIn }: {
                   <header>
                     <strong>{comment.authorName}</strong>
                     <time dateTime={new Date(comment.createdAt).toISOString()}>{timestamp.format(new Date(comment.createdAt))}</time>
+                    {comment.editedAt !== null && <span className="comment-edited">{t("edited")}</span>}
                   </header>
-                  <p>{comment.body}</p>
+                  {editingId === comment.id ? (
+                    <form className="comment-edit-form" onSubmit={saveEdit}>
+                      <label className="sr-only" htmlFor="comment-edit">{t("Edit comment")}</label>
+                      <textarea
+                        id="comment-edit"
+                        value={editDraft}
+                        maxLength={MAX_COMMENT_LENGTH}
+                        onChange={(event) => setEditDraft(event.target.value)}
+                      />
+                      <div className="comment-form-footer">
+                        <small>{editDraft.length} / {MAX_COMMENT_LENGTH}</small>
+                        <span className="comment-edit-actions">
+                          <button type="button" className="secondary" onClick={cancelEdit}>{t("Cancel")}</button>
+                          <button type="submit" disabled={savingEdit || !editDraft.trim()}>
+                            {savingEdit ? t("Posting...") : t("Save changes")}
+                          </button>
+                        </span>
+                      </div>
+                      {editNotice && <p className="form-notice" role="status">{editNotice}</p>}
+                    </form>
+                  ) : (
+                    <p>{comment.body}</p>
+                  )}
                 </div>
-                {user?.id === comment.authorId && (
-                  <button type="button" className="comment-delete" aria-label={t("Delete comment")} onClick={() => void remove(comment.id)}>
-                    <Trash size={17} />
-                  </button>
-                )}
+                <span className="comment-actions">
+                  {user?.id === comment.authorId && editingId !== comment.id && (
+                    <button type="button" className="comment-tool" aria-label={t("Edit comment")} onClick={() => beginEdit(comment)}>
+                      <PencilSimple size={17} />
+                    </button>
+                  )}
+                  {isAdmin && (
+                    <button type="button" className="comment-tool comment-delete" aria-label={t("Delete comment")} onClick={() => void remove(comment.id)}>
+                      <Trash size={17} />
+                    </button>
+                  )}
+                </span>
               </li>
             ))}
           </ol>

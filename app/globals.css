@@ -548,14 +548,14 @@ select {
 .match-comments .section-heading { margin-bottom: 42px; }
 .comments-panel { max-width: 760px; display: flex; flex-direction: column; gap: 16px; }
 .comment-form { padding: 20px; border: 1px solid var(--line); border-radius: var(--radius); background: linear-gradient(145deg, rgba(255,255,255,.018), transparent 34%), var(--surface); }
-.comment-form textarea { width: 100%; min-height: 96px; padding: 12px 14px; border: 1px solid var(--line-strong); border-radius: 11px; background: #0e1010; color: var(--ink); font: inherit; font-size: 14px; line-height: 1.55; resize: vertical; transition: border-color .25s ease, box-shadow .25s ease; }
-.comment-form textarea:focus { outline: none; border-color: rgba(217,172,67,.42); box-shadow: 0 0 0 3px rgba(217,172,67,.055); }
+.comments-panel textarea { width: 100%; min-height: 96px; padding: 12px 14px; border: 1px solid var(--line-strong); border-radius: 11px; background: #0e1010; color: var(--ink); font: inherit; font-size: 14px; line-height: 1.55; resize: vertical; transition: border-color .25s ease, box-shadow .25s ease; }
+.comments-panel textarea:focus { outline: none; border-color: rgba(217,172,67,.42); box-shadow: 0 0 0 3px rgba(217,172,67,.055); }
 .comment-form-footer { display: flex; align-items: center; justify-content: space-between; gap: 14px; margin-top: 12px; }
 .comment-form-footer small { color: var(--muted); font-size: 11px; }
 .comment-form-footer button, .comment-signin button { min-height: 42px; display: inline-flex; align-items: center; gap: 8px; padding: 0 18px; border: 1px solid rgba(217,172,67,.5); border-radius: 11px; background: rgba(217,172,67,.1); color: var(--gold-bright); font-size: 13px; font-weight: 800; cursor: pointer; transition: background .2s ease, transform .2s ease; }
 .comment-form-footer button:hover, .comment-signin button:hover { background: rgba(217,172,67,.16); transform: translateY(-1px); }
 .comment-form-footer button:disabled { opacity: .45; cursor: not-allowed; transform: none; }
-.comment-form .form-notice { text-align: left; }
+.comments-panel .form-notice { text-align: left; }
 .comment-signin { display: flex; align-items: center; gap: 14px; padding: 18px 20px; border: 1px dashed var(--line-strong); border-radius: var(--radius); color: var(--gold-bright); }
 .comment-signin p { flex: 1; margin: 0; color: var(--muted); font-size: 14px; line-height: 1.5; }
 .comment-list { display: flex; flex-direction: column; gap: 12px; margin: 0; padding: 0; list-style: none; }
@@ -564,8 +564,15 @@ select {
 .comment-content strong { font-size: 13px; }
 .comment-content time { color: var(--muted); font-size: 11px; }
 .comment-content p { margin: 6px 0 0; color: #c9cbc6; font-size: 14px; line-height: 1.55; white-space: pre-wrap; overflow-wrap: anywhere; }
-.comment-delete { align-self: start; display: inline-flex; padding: 7px; border: 0; border-radius: 8px; background: transparent; color: var(--muted); cursor: pointer; transition: background .2s ease, color .2s ease; }
-.comment-delete:hover { background: rgba(255,255,255,.06); color: #e08585; }
+.comment-actions { display: flex; gap: 4px; align-self: start; }
+.comment-tool { display: inline-flex; padding: 7px; border: 0; border-radius: 8px; background: transparent; color: var(--muted); cursor: pointer; transition: background .2s ease, color .2s ease; }
+.comment-tool:hover { background: rgba(255,255,255,.06); color: var(--ink); }
+.comment-delete:hover { color: #e08585; }
+.comment-edit-form { margin-top: 8px; }
+.comment-edit-actions { display: flex; gap: 8px; }
+.comment-form-footer .secondary { border-color: var(--line-strong); background: transparent; color: var(--muted); }
+.comment-form-footer .secondary:hover { background: rgba(255,255,255,.05); color: var(--ink); transform: none; }
+.comment-edited { color: var(--muted); font-size: 10px; font-style: italic; }
 .comments-status { margin: 0; color: var(--muted); font-size: 13px; }
 
 .post-match-recap { padding: 92px clamp(20px, 6vw, 88px); background: radial-gradient(circle at 86% 5%, rgba(217,172,67,.11), transparent 27%), #0c0e0e; }

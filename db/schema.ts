@@ -231,6 +231,9 @@ export const matchComments = sqliteTable("match_comments", {
   userId: text("user_id").notNull().references(() => user.id, { onDelete: "cascade" }),
   body: text("body").notNull(),
   createdAt: integer("created_at").notNull(),
+  updatedAt: integer("updated_at"),
+  deletedAt: integer("deleted_at"),
+  deletedBy: text("deleted_by"),
 }, (table) => [
   index("match_comments_match_created_idx").on(table.matchId, table.createdAt),
   index("match_comments_user_created_idx").on(table.userId, table.createdAt),
