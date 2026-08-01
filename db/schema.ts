@@ -238,3 +238,12 @@ export const matchComments = sqliteTable("match_comments", {
   index("match_comments_match_created_idx").on(table.matchId, table.createdAt),
   index("match_comments_user_created_idx").on(table.userId, table.createdAt),
 ]);
+
+export const commentMutes = sqliteTable("comment_mutes", {
+  id: text("id").primaryKey(),
+  userId: text("user_id").notNull().references(() => user.id, { onDelete: "cascade" }),
+  mutedBy: text("muted_by").notNull(),
+  createdAt: integer("created_at").notNull(),
+  revokedAt: integer("revoked_at"),
+  revokedBy: text("revoked_by"),
+}, (table) => [index("comment_mutes_user_active_idx").on(table.userId, table.revokedAt)]);

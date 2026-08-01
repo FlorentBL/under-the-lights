@@ -60,6 +60,11 @@ function commentBodyOrError(value: unknown) {
   }
 }
 
+async function activeMute(db: D1Database, userId: string) {
+  return db.prepare("SELECT id FROM comment_mutes WHERE user_id = ? AND revoked_at IS NULL LIMIT 1")
+    .bind(userId).first<{ id: string }>();
+}
+
 async function publishedMatch(db: D1Database, matchId: string) {
   return db.prepare(`SELECT c.fixture_id
     FROM spotlights s JOIN spotlight_candidates c ON c.id = s.candidate_id
@@ -99,6 +104,9 @@ export async function POST(request: Request) {
   if (error) return error;
 
   const db = (env as Cloudflare.Env).DB;
+  if (await activeMute(db, session.user.id)) {
+    return NextResponse.json({ error: "An administrator has muted this account from commenting" }, { status: 403 });
+  }
   const match = await publishedMatch(db, matchId);
   if (!match) return NextResponse.json({ error: "Published match not found" }, { status: 404 });
 
@@ -146,6 +154,9 @@ export async function PATCH(request: Request) {
   }
   if (comment.user_id !== session.user.id) {
     return NextResponse.json({ error: "You can only edit your own comments" }, { status: 403 });
+  }
+  if (await activeMute(db, session.user.id)) {
+    return NextResponse.json({ error: "An administrator has muted this account from commenting" }, { status: 403 });
   }
 
   await db.prepare("UPDATE match_comments SET body = ?, updated_at = ? WHERE id = ?")

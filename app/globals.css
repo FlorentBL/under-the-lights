@@ -1550,6 +1550,7 @@ select {
 .provider-list span, .access-level { display: inline-flex; align-items: center; min-height: 25px; padding: 0 8px; border: 1px solid var(--line-strong); border-radius: 7px; background: #0d0f0f; color: #b0b3ae; font-size: 9px; font-weight: 750; }
 .access-level.admin { border-color: rgba(217,172,67,.28); background: rgba(217,172,67,.07); color: var(--gold-bright); }
 .access-level.banned { border-color: rgba(255,159,146,.3); background: rgba(255,159,146,.08); color: #f0aaa1; }
+.access-level.muted { border-color: rgba(217,172,67,.3); background: rgba(217,172,67,.07); color: #ead9a0; }
 .access-control { display: flex; align-items: center; gap: 7px; }
 .access-confirm { display: inline-flex; align-items: center; gap: 5px; }
 .access-control small { color: #6f736f; font-size: 8px; }

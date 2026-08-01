@@ -9,8 +9,9 @@ Signed-in users can comment on the weekly Spotlight match — before kick-off an
 | Validation rules and limits | `lib/comments.ts` |
 | API (GET/POST/PATCH/DELETE) | `app/api/comments/route.ts` |
 | UI component | `app/match-comments.tsx` (rendered by `SpotlightView` in `app/under-the-lights-app.tsx`) |
-| Schema | `match_comments` in `db/schema.ts` |
-| Migrations | `drizzle/0013_match_comments.sql`, `drizzle/0014_comment_moderation.sql` |
+| Schema | `match_comments` and `comment_mutes` in `db/schema.ts` |
+| Migrations | `drizzle/0013_match_comments.sql`, `drizzle/0014_comment_moderation.sql`, `drizzle/0015_comment_mutes.sql` |
+| Admin mute controls | `app/admin/admin-panel.tsx` (users view) + `app/api/admin/users/route.ts` |
 | Styles | `.match-comments` block in `app/globals.css` |
 | Translations | `additionalTranslations` in `lib/i18n.tsx` (fr/it/es/de; English keys are the fallback) |
 | Unit tests | `tests/comments.test.mjs` |
@@ -21,7 +22,8 @@ Signed-in users can comment on the weekly Spotlight match — before kick-off an
 - **Write**: signed-in users only, and only on the currently published Spotlight match (same `publishedMatch` guard as predictions).
 - **Edit**: the author only (`PATCH`). Admins cannot edit other people's words.
 - **Delete**: admins only (`requireAdmin` from `lib/admin-auth`). Authors cannot delete their own comments; they can edit them.
-- **Banned users**: banning (admin panel → users) deletes all active sessions and blocks new ones (`lib/auth.ts` session hook), so banned users cannot comment. There is intentionally no separate comment-only mute.
+- **Muted users**: admins can mute an account from commenting ("Mute comments" per user in the admin panel). A mute blocks `POST` and `PATCH` (403) but leaves the rest of the app untouched. Active mute = a `comment_mutes` row with `revoked_at IS NULL`.
+- **Banned users**: banning (admin panel → users) deletes all active sessions and blocks new ones (`lib/auth.ts` session hook), so banned users cannot comment at all.
 
 ## Audit trail
 
@@ -30,6 +32,7 @@ Deletes are soft: rows are never removed, so the full history stays queryable in
 - `created_at` + `user_id` — who wrote it and when.
 - `updated_at` — set on every author edit; the UI shows an "edited" marker when present.
 - `deleted_at` + `deleted_by` — set by admin deletion; listings filter on `deleted_at IS NULL`.
+- Mutes are event rows in `comment_mutes`: `muted_by` + `created_at` on mute, `revoked_at` + `revoked_by` on unmute. Rows are never deleted, so the full mute history per user is preserved.
 
 Note: `user_id` has `ON DELETE cascade`, so deleting a user account removes their comment rows entirely.
 
@@ -55,5 +58,4 @@ Injection safety: every query uses D1 prepared statements with `.bind()` (no str
 ## Deliberate omissions (decide before adding)
 
 - **GIFs/media**: would require upload storage or a third-party embed (external requests are a data-privacy decision, see `docs/security-audit-2026-07.md`).
-- **Comment-only mute**: banning covers moderation today; a mute would need a new table or flag plus admin UI.
 - **Pagination**: capped at the latest 100; add paging before raising the cap.

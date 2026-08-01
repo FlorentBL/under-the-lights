@@ -98,6 +98,8 @@ type AdminUser = {
   roleSource: "configured" | "delegated" | null;
   status: "active" | "banned";
   bannedAt: number | null;
+  muted: boolean;
+  mutedAt: number | null;
   isCurrentUser: boolean;
   soccerverseUsername: string | null;
 };
@@ -110,6 +112,7 @@ type UsersPayload = {
     verified: number;
     predictors: number;
     banned: number;
+    muted: number;
   };
 };
 
@@ -767,6 +770,35 @@ function UsersView() {
     }
   }
 
+  async function updateMute(user: AdminUser, muted: boolean) {
+    setUpdatingUserId(user.id);
+    setActionError("");
+    setNotice("");
+    try {
+      const response = await fetch("/api/admin/users", {
+        method: "PATCH",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ userId: user.id, muted }),
+      });
+      const result = await response.json() as { error?: string; muted?: boolean; mutedAt?: number | null };
+      if (!response.ok) throw new Error(result.error || "Unable to update comment access");
+      setPayload((current) => current ? {
+        ...current,
+        users: current.users.map((item) => item.id === user.id
+          ? { ...item, muted: result.muted ?? muted, mutedAt: result.mutedAt ?? null }
+          : item),
+        summary: { ...current.summary, muted: Math.max(0, (current.summary.muted || 0) + (muted ? 1 : -1)) },
+      } : current);
+      setNotice(muted
+        ? `${user.name} can no longer write match comments.`
+        : `${user.name} can write match comments again.`);
+    } catch (cause) {
+      setActionError(cause instanceof Error ? cause.message : "Unable to update comment access");
+    } finally {
+      setUpdatingUserId(null);
+    }
+  }
+
   if (error) return <section className="admin-empty error-state"><WarningCircle size={42} /><h2>Registry unavailable.</h2><p>{error}</p></section>;
   if (!payload) return <UsersLoading />;
 
@@ -807,6 +839,7 @@ function UsersView() {
                     <td data-label="Access">
                       <div className="access-control">
                         <span className={`access-level ${user.status === "banned" ? "banned" : user.role}`}>{user.status === "banned" ? "Banned" : user.roleSource === "configured" ? "Owner admin" : user.role === "admin" ? "Admin" : "Player"}</span>
+                        {user.muted && user.status !== "banned" && <span className="access-level muted">Muted</span>}
                         {user.status === "banned" ? (
                           <button type="button" onClick={() => updateBan(user, false)} disabled={updatingUserId === user.id}>
                             {updatingUserId === user.id ? "Updating…" : "Unban"}
@@ -828,6 +861,9 @@ function UsersView() {
                                 Ban
                               </button>
                             )}
+                            <button type="button" className="quiet" onClick={() => updateMute(user, !user.muted)} disabled={updatingUserId === user.id}>
+                              {updatingUserId === user.id ? "Updating…" : user.muted ? "Unmute comments" : "Mute comments"}
+                            </button>
                           </>
                         ) : pendingDemotionId === user.id ? (
                           <span className="access-confirm">
