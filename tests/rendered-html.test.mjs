@@ -4,40 +4,27 @@ import test from "node:test";
 
 const projectRoot = new URL("../", import.meta.url);
 
-test("ships the Under the Lights product surface", async () => {
-  const [page, layout, app, css, packageJson] = await Promise.all([
+test("ships the Under the Lights end-of-beta page", async () => {
+  const [page, layout, css, worker, wrangler] = await Promise.all([
     readFile(new URL("../app/page.tsx", import.meta.url), "utf8"),
     readFile(new URL("../app/layout.tsx", import.meta.url), "utf8"),
-    readFile(new URL("../app/under-the-lights-app.tsx", import.meta.url), "utf8"),
     readFile(new URL("../app/globals.css", import.meta.url), "utf8"),
-    readFile(new URL("../package.json", import.meta.url), "utf8"),
+    readFile(new URL("../worker/index.ts", import.meta.url), "utf8"),
+    readFile(new URL("../wrangler.jsonc", import.meta.url), "utf8"),
   ]);
 
-  assert.match(page, /UnderTheLightsApp/);
-  assert.match(layout, /Under the Lights \| Soccerverse Prediction Game/);
-  assert.match(layout, /\/og\.png/);
-  assert.match(app, /Make your prediction/);
-  assert.match(app, /Leaderboard/);
-  assert.match(app, /Achievements/);
-  assert.match(app, /className="beta-badge"/);
-  assert.match(app, />Beta<\/span>/);
-  assert.match(app, /Prediction history/);
-  assert.match(app, /How it works/);
-  assert.match(app, /The project/);
-  assert.match(app, /function HowItWorksView/);
-  assert.match(app, /Fifteen points are available/);
-  assert.match(app, /function ProjectView/);
-  assert.match(app, /How the Spotlight is chosen/);
-  assert.match(app, /https:\/\/play\.soccerverse\.com\/match\/\$\{spotlight\.fixtureId\}/);
-  assert.match(app, /league\/\$\{spotlight\.divisionLevel \+ 1\}/);
-  assert.match(app, /Open in Soccerverse/);
-  assert.match(app, /utl-pending-prediction/);
-  assert.match(app, /Signed in\. Locking your prediction/);
-  assert.match(app, /void savePrediction\(pending, true\)/);
-  assert.match(app, /callbackURL: window\.location\.origin/);
-  assert.match(css, /prefers-reduced-motion/);
-  assert.doesNotMatch(packageJson, /react-loading-skeleton/);
-  assert.doesNotMatch(app, /[—–]/);
+  assert.match(page, /The beta has ended/);
+  assert.match(page, /Thank you for playing\./);
+  assert.match(page, /\/beta-farewell\.png/);
+  assert.doesNotMatch(page, /UnderTheLightsApp/);
+  assert.match(layout, /Thank You \| Under the Lights/);
+  assert.match(css, /\.farewell-page/);
+  assert.match(worker, /url\.pathname\.startsWith\("\/api\/"\)/);
+  assert.match(worker, /status: 410/);
+  assert.match(worker, /url\.pathname === "\/admin"/);
+  assert.match(wrangler, /"crons": \[\]/);
+  assert.doesNotMatch(page, /[—–]/);
+  await access(new URL("../public/beta-farewell.png", import.meta.url));
 });
 
 test("includes durable prediction storage and brand assets", async () => {
@@ -254,7 +241,7 @@ test("lets administrators ban players and revoke their sessions", async () => {
   assert.match(schema, /sqliteTable\("banned_users"/);
 });
 
-test("ships an administrator settlement cockpit", async () => {
+test("retains the administrator settlement cockpit without scheduling it", async () => {
   const [route, panel, schema, migration, worker] = await Promise.all([
     readFile(new URL("../app/api/admin/settlement/route.ts", import.meta.url), "utf8"),
     readFile(new URL("../app/admin/admin-panel.tsx", import.meta.url), "utf8"),
@@ -271,7 +258,8 @@ test("ships an administrator settlement cockpit", async () => {
   assert.match(panel, /Result checks/);
   assert.match(schema, /sqliteTable\("settlement_checks"/);
   assert.match(migration, /CREATE TABLE `settlement_checks`/);
-  assert.match(worker, /"\* \* \* \* \*"/);
+  assert.match(worker, /"crons": \[\]/);
+  assert.doesNotMatch(worker, /"\* \* \* \* \*"/);
 });
 
 test("requires two recently active Soccerverse managers in the radar", async () => {

@@ -54,6 +54,19 @@ const worker = {
     const url = new URL(request.url);
     let response: Response;
 
+    if (url.pathname.startsWith("/api/")) {
+      response = Response.json(
+        { error: "The Under the Lights beta has ended." },
+        { status: 410, headers: { "Cache-Control": "private, no-store" } },
+      );
+      return secureResponse(response, url);
+    }
+
+    if (url.pathname === "/admin" || url.pathname.startsWith("/admin/") || url.pathname.startsWith("/players/")) {
+      response = Response.redirect(new URL("/", url), 307);
+      return secureResponse(response, url);
+    }
+
     if (url.pathname === "/_vinext/image") {
       const images = env.IMAGES;
       if (!images) {
