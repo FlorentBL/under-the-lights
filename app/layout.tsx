@@ -14,20 +14,20 @@ const geistMono = Geist_Mono({
 
 export const metadata: Metadata = {
   metadataBase: new URL("https://under-the-lights.flobl.workers.dev"),
-  title: "Under the Lights | Soccerverse Prediction Game",
+  title: "Thank You | Under the Lights",
   description:
-    "One Soccerverse match takes centre stage every week. Predict it, score points, and unlock achievements all season.",
+    "The Under the Lights beta has ended. Thank you to everyone who joined us.",
   openGraph: {
-    title: "Under the Lights",
-    description: "One world. One match. Every week.",
+    title: "Thank You | Under the Lights",
+    description: "The Under the Lights beta has ended. Thank you to everyone who joined us.",
     type: "website",
-    images: [{ url: "/og.png", width: 1280, height: 640, alt: "Soccerverse Under the Lights prediction game" }],
+    images: [{ url: "/beta-farewell.png", width: 1716, height: 916, alt: "An empty football stadium after the Under the Lights beta" }],
   },
   twitter: {
     card: "summary_large_image",
-    title: "Under the Lights",
-    description: "One world. One match. Every week.",
-    images: ["/og.png"],
+    title: "Thank You | Under the Lights",
+    description: "The Under the Lights beta has ended. Thank you to everyone who joined us.",
+    images: ["/beta-farewell.png"],
   },
   icons: {
     icon: "/logo.png",
